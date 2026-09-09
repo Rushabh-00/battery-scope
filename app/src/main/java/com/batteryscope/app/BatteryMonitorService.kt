@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -20,16 +21,16 @@ class BatteryMonitorService : Service() {
     private lateinit var engine: MeasurementEngine
     private val handler = Handler(Looper.getMainLooper())
     private val recent = ArrayDeque<BatterySnapshot>()
-    private var lastAlarmLevel = -1
-    private var lastAlarmTemp = -1.0
+    private var lastLowAlarm = false
+    private var lastFullAlarm = false
+    private var lastHotAlarm = false
 
     private val monitor = object : Runnable {
         override fun run() {
             val battery = readBattery(this@BatteryMonitorService)
             addRecent(battery)
             engine.observe(battery)
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.notify(NOTIFICATION_ID, buildNotification(battery))
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(battery))
             maybeAlarm(battery)
             handler.postDelayed(this, store.settings().updateIntervalSeconds * 1000L)
         }
@@ -39,7 +40,7 @@ class BatteryMonitorService : Service() {
         super.onCreate()
         store = BatteryStore(this)
         engine = MeasurementEngine(store)
-        createChannel()
+        createChannels()
         val battery = readBattery(this)
         addRecent(battery)
         engine.observe(battery)
@@ -58,12 +59,14 @@ class BatteryMonitorService : Service() {
 
     private fun averageCurrent(): Double? = recent.mapNotNull { it.currentMa }.takeIf { it.isNotEmpty() }?.average()
 
-    private fun createChannel() {
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Persistent BatteryScope battery telemetry"
-            }
-        )
+    private fun createChannels() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "Persistent BatteryScope battery telemetry"
+        })
+        manager.createNotificationChannel(NotificationChannel(ALARM_CHANNEL_ID, "Battery alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "Low battery, full charge and temperature alerts"
+        })
     }
 
     private fun formatCurrent(ma: Double, unit: String): String {
@@ -77,10 +80,7 @@ class BatteryMonitorService : Service() {
 
     private fun formatPower(w: Double, scalar: Float): String {
         val value = w * scalar
-        return when {
-            abs(value) < 0.1 -> String.format(Locale.US, "%.3f W", value)
-            else -> String.format(Locale.US, "%.2f W", value)
-        }
+        return if (abs(value) < 0.1) String.format(Locale.US, "%.3f W", value) else String.format(Locale.US, "%.2f W", value)
     }
 
     private fun formatDuration(ms: Long): String {
@@ -141,18 +141,17 @@ class BatteryMonitorService : Service() {
     private fun maybeAlarm(battery: BatterySnapshot) {
         val settings = store.settings()
         val manager = getSystemService(NotificationManager::class.java)
-        if (settings.lowBatteryAlarm && battery.level <= 15 && lastAlarmLevel != battery.level) {
-            manager.notify(LOW_ALARM_ID, alarm("Low battery", "Battery is at ${battery.level}%"))
-            lastAlarmLevel = battery.level
-        }
-        if (settings.fullBatteryAlarm && battery.status == "Full" && lastAlarmLevel != 100) {
-            manager.notify(FULL_ALARM_ID, alarm("Battery full", "Battery reached full charge"))
-            lastAlarmLevel = 100
-        }
-        if (settings.temperatureAlarm && battery.temperatureC >= 45.0 && lastAlarmTemp < 45.0) {
-            manager.notify(TEMP_ALARM_ID, alarm("High battery temperature", String.format(Locale.US, "Battery temperature is %.1f°C", battery.temperatureC)))
-        }
-        lastAlarmTemp = battery.temperatureC
+        val low = settings.lowBatteryAlarm && battery.level <= 15
+        if (low && !lastLowAlarm) manager.notify(LOW_ALARM_ID, alarm("Low battery", "Battery is at ${battery.level}%"))
+        if (!low) lastLowAlarm = false else lastLowAlarm = true
+
+        val full = settings.fullBatteryAlarm && battery.status == "Full"
+        if (full && !lastFullAlarm) manager.notify(FULL_ALARM_ID, alarm("Battery full", "Battery reached full charge"))
+        if (!full) lastFullAlarm = false else lastFullAlarm = true
+
+        val hot = settings.temperatureAlarm && battery.temperatureC >= 45.0
+        if (hot && !lastHotAlarm) manager.notify(TEMP_ALARM_ID, alarm("High battery temperature", String.format(Locale.US, "Battery temperature is %.1f°C", battery.temperatureC)))
+        if (!hot) lastHotAlarm = false else lastHotAlarm = true
     }
 
     private fun alarm(title: String, text: String): Notification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
