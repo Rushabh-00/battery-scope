@@ -79,13 +79,24 @@ jobs:
           test -x "$zipalign_bin"
           test -x "$apksigner_bin"
           "$zipalign_bin" -P 16 -f 4 "$unsigned" "$aligned"
-          "$apksigner_bin" sign \
+          rm -f "$output"
+          if ! "$apksigner_bin" sign \
             --ks "$RUNNER_TEMP/batteryscope-release.keystore" \
             --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
             --ks-key-alias "$ANDROID_KEY_ALIAS" \
             --key-pass env:ANDROID_KEY_PASSWORD \
             --out "$output" \
-            "$aligned"
+            "$aligned"; then
+            echo "Private-key password did not unlock the alias; retrying with the keystore password."
+            rm -f "$output"
+            "$apksigner_bin" sign \
+              --ks "$RUNNER_TEMP/batteryscope-release.keystore" \
+              --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --key-pass env:ANDROID_KEYSTORE_PASSWORD \
+              --out "$output" \
+              "$aligned"
+          fi
           "$apksigner_bin" verify --verbose "$output"
           rm -f "$RUNNER_TEMP/batteryscope-release.keystore" "$aligned"
       - name: Measure release size
