@@ -2,17 +2,13 @@ package com.batteryscope.app.settings
 
 import android.content.Context
 
-/** Persistent user preferences for BatteryScope. UI is intentionally added later. */
+/** Persistent user preferences for BatteryScope. */
 class AppSettings(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
     var currentUnit: CurrentUnit
         get() = CurrentUnit.fromValue(preferences.getString(KEY_CURRENT_UNIT, CurrentUnit.AMPERE.value))
         set(value) = preferences.edit().putString(KEY_CURRENT_UNIT, value.value).apply()
-
-    var chargeUnit: ChargeUnit
-        get() = ChargeUnit.fromValue(preferences.getString(KEY_CHARGE_UNIT, ChargeUnit.MILLIAMP_HOUR.value))
-        set(value) = preferences.edit().putString(KEY_CHARGE_UNIT, value.value).apply()
 
     var temperatureUnit: TemperatureUnit
         get() = TemperatureUnit.fromValue(preferences.getString(KEY_TEMPERATURE_UNIT, TemperatureUnit.CELSIUS.value))
@@ -27,21 +23,20 @@ class AppSettings(context: Context) {
         get() = preferences.getBoolean(KEY_INVERT_CHARGING_POLARITY, true)
         set(value) = preferences.edit().putBoolean(KEY_INVERT_CHARGING_POLARITY, value).apply()
 
+    /** Live telemetry refresh interval in milliseconds. */
+    var updateIntervalMs: Long
+        get() = preferences.getLong(KEY_UPDATE_INTERVAL_MS, DEFAULT_UPDATE_INTERVAL_MS)
+            .coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS)
+        set(value) = preferences.edit()
+            .putLong(KEY_UPDATE_INTERVAL_MS, value.coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS))
+            .apply()
+
     enum class CurrentUnit(val value: String) {
         AMPERE("A"),
         MILLIAMPERE("mA");
 
         companion object {
             fun fromValue(value: String?): CurrentUnit = entries.firstOrNull { it.value == value } ?: AMPERE
-        }
-    }
-
-    enum class ChargeUnit(val value: String) {
-        AMPERE_HOUR("Ah"),
-        MILLIAMP_HOUR("mAh");
-
-        companion object {
-            fun fromValue(value: String?): ChargeUnit = entries.firstOrNull { it.value == value } ?: MILLIAMP_HOUR
         }
     }
 
@@ -67,9 +62,12 @@ class AppSettings(context: Context) {
     private companion object {
         const val FILE_NAME = "battery_scope_settings"
         const val KEY_CURRENT_UNIT = "current_unit"
-        const val KEY_CHARGE_UNIT = "charge_unit"
         const val KEY_TEMPERATURE_UNIT = "temperature_unit"
         const val KEY_THEME = "theme"
         const val KEY_INVERT_CHARGING_POLARITY = "invert_charging_polarity"
+        const val KEY_UPDATE_INTERVAL_MS = "update_interval_ms"
+        const val MIN_UPDATE_INTERVAL_MS = 1_250L
+        const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
+        const val MAX_UPDATE_INTERVAL_MS = 10_000L
     }
 }
