@@ -19,13 +19,6 @@ The repository has one GitHub Actions workflow. It runs on every push to `main` 
 
 The workflow builds one release APK, signs it with the repository signing secrets, verifies the signature, and publishes the single APK to a GitHub release.
 
-## Release signing secrets
-
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-
 ## Current UI
 
 The app uses Jetpack Compose and Material 3 with stable APIs only. The interface supports Auto, Light, Dark, and OLED presentation modes.
