@@ -55,15 +55,14 @@ data class HistorySample(
     val temperatureC: Double,
     val voltageV: Double,
     val currentMa: Double?
-)
+) {
+    val powerW: Double get() = currentMa?.let { it * voltageV / 1000.0 } ?: 0.0
+}
 
 private fun normalizedCurrentMa(rawUa: Long?, charging: Boolean): Double? {
     if (rawUa == null) return null
     val magnitudeMa = abs(rawUa) / 1000.0
     if (magnitudeMa < 0.5) return 0.0
-    // The battery status is the more reliable direction indicator on OEMs that
-    // expose the current polarity incorrectly. Present + for current entering
-    // the battery and - for current leaving it.
     return if (charging) magnitudeMa else -magnitudeMa
 }
 
@@ -80,13 +79,13 @@ fun readBattery(context: Context): BatterySnapshot {
         BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "Not charging"
         else -> "Unknown"
     }
+    val charging = status == "Charging" || status == "Full"
     val rawNowUa = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
         bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).let { if (it == Int.MIN_VALUE) null else it.toLong() }
     } else null
     val rawAverageUa = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
         bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE).let { if (it == Int.MIN_VALUE) null else it.toLong() }
     } else null
-    val charging = status == "Charging" || status == "Full"
     val currentMa = normalizedCurrentMa(rawNowUa, charging)
     val averageCurrentMa = normalizedCurrentMa(rawAverageUa, charging)
     val powerW = currentMa?.let { it * voltage / 1000.0 }
@@ -140,20 +139,11 @@ fun healthConfidence(sessionCount: Int): Int = when {
 fun estimateHealth(sessions: List<ChargeSession>): HealthEstimate {
     if (sessions.isEmpty()) return HealthEstimate(null, null, 0, 0, "Estimated from charging sessions")
     val valid = sessions.filter { it.endLevel - it.startLevel >= 60 && it.estimatedCapacityMah in 2500.0..6500.0 }
-    if (valid.isEmpty()) {
-        return HealthEstimate(null, null, 0, 0, "Need a usable charge session covering at least 60 percentage points")
-    }
-    // AccuBattery-style moving average: favor the most recent five usable sessions.
+    if (valid.isEmpty()) return HealthEstimate(null, null, 0, 0, "Need a usable charge session covering at least 60 percentage points")
     val recent = valid.takeLast(5)
     val capacity = recent.map { it.estimatedCapacityMah }.average()
     val health = (capacity / DESIGN_CAPACITY_MAH * 100.0).coerceIn(0.0, 120.0)
-    return HealthEstimate(
-        capacity,
-        health,
-        healthConfidence(recent.size),
-        recent.size,
-        "Estimated from the last ${recent.size} usable charge sessions"
-    )
+    return HealthEstimate(capacity, health, healthConfidence(recent.size), recent.size, "Estimated from the last ${recent.size} usable charge sessions")
 }
 
 fun estimateWearCycles(endVoltageV: Double, endLevel: Int): Double {
@@ -187,63 +177,30 @@ class MeasurementEngine(private val store: BatteryStore) {
             val peakV = maxOf(sessionPeakVoltage, snapshot.voltageV)
             val wear = estimateWearCycles(peakV, end)
             val efficiency = if (wear > 0.0) delta / (wear * 100.0) * 100.0 else 0.0
-            store.addSession(
-                ChargeSession(
-                    startTime = sessionStartTime ?: snapshot.timestamp,
-                    endTime = snapshot.timestamp,
-                    startLevel = start,
-                    endLevel = end,
-                    chargedMah = sessionMah,
-                    estimatedCapacityMah = estimate,
-                    endVoltageV = peakV,
-                    wearCycles = wear,
-                    efficiencyPercent = efficiency
-                )
-            )
+            store.addSession(ChargeSession(sessionStartTime ?: snapshot.timestamp, snapshot.timestamp, start, end, sessionMah, estimate, peakV, wear, efficiency))
         }
         clearSession()
     }
 
     fun observe(snapshot: BatterySnapshot) {
         val previous = lastSample
-
         if (snapshot.charging && sessionStartLevel == null && snapshot.level < 100) {
             sessionStartLevel = snapshot.level
             sessionStartTime = snapshot.timestamp
             sessionMah = 0.0
             sessionPeakVoltage = snapshot.voltageV
         }
-
         if (previous != null && previous.charging && snapshot.charging && snapshot.currentMa != null) {
             val dtHours = (snapshot.timestamp - previous.timestamp).coerceAtLeast(0L) / 3_600_000.0
-            if (dtHours in 0.0..0.10) {
-                sessionMah += abs(snapshot.currentMa) * dtHours
-            }
+            if (dtHours in 0.0..0.10) sessionMah += abs(snapshot.currentMa) * dtHours
         }
-
-        if (sessionStartLevel != null && snapshot.charging) {
-            sessionPeakVoltage = maxOf(sessionPeakVoltage, snapshot.voltageV)
-        }
-
+        if (sessionStartLevel != null && snapshot.charging) sessionPeakVoltage = maxOf(sessionPeakVoltage, snapshot.voltageV)
         val completed = sessionStartLevel != null && (snapshot.level >= 99 || snapshot.status == "Full")
-        if (completed) {
-            finishSession(snapshot)
-        } else if (previous?.charging == true && !snapshot.charging && sessionStartLevel != null) {
-            // Partial charges are useful too. Save a session when it covered
-            // enough percentage points, just like the health estimator requires.
-            finishSession(previous)
-        }
+        if (completed) finishSession(snapshot)
+        else if (previous?.charging == true && !snapshot.charging && sessionStartLevel != null) finishSession(previous)
 
         if (previous == null || snapshot.timestamp - previous.timestamp >= 60_000L) {
-            store.addSample(
-                HistorySample(
-                    snapshot.timestamp,
-                    snapshot.level,
-                    snapshot.temperatureC,
-                    snapshot.voltageV,
-                    snapshot.currentMa
-                )
-            )
+            store.addSample(HistorySample(snapshot.timestamp, snapshot.level, snapshot.temperatureC, snapshot.voltageV, snapshot.currentMa))
         }
         lastSample = snapshot
     }
