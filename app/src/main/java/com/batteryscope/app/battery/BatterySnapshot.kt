@@ -7,6 +7,7 @@ data class BatterySnapshot(
     val currentA: Double?,
     val temperatureC: Double?,
     val remainingMah: Double?,
+    val batteryCapacityMah: Double?,
     val estimatedCapacityMah: Double?,
     val powerW: Double?,
     val energyWh: Double?,
