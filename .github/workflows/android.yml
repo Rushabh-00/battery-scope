@@ -70,35 +70,30 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/batteryscope-release.keystore"
+          keystore="$RUNNER_TEMP/batteryscope-release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
           unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
           aligned="$RUNNER_TEMP/BatteryScope-aligned.apk"
           output="dist/BatteryScope-release.apk"
           zipalign_bin=$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -1)
           apksigner_bin=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          keytool_bin="$JAVA_HOME/bin/keytool"
           test -x "$zipalign_bin"
           test -x "$apksigner_bin"
+          test -x "$keytool_bin"
+          echo "Checking keystore alias and credentials..."
+          "$keytool_bin" -list -v -keystore "$keystore" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          "$keytool_bin" -keypasswd -keystore "$keystore" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD" -new "$ANDROID_KEY_PASSWORD" >/dev/null
           "$zipalign_bin" -P 16 -f 4 "$unsigned" "$aligned"
-          rm -f "$output"
-          if ! "$apksigner_bin" sign \
-            --ks "$RUNNER_TEMP/batteryscope-release.keystore" \
+          "$apksigner_bin" sign \
+            --ks "$keystore" \
             --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
             --ks-key-alias "$ANDROID_KEY_ALIAS" \
             --key-pass env:ANDROID_KEY_PASSWORD \
             --out "$output" \
-            "$aligned"; then
-            echo "Private-key password did not unlock the alias; retrying with the keystore password."
-            rm -f "$output"
-            "$apksigner_bin" sign \
-              --ks "$RUNNER_TEMP/batteryscope-release.keystore" \
-              --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
-              --ks-key-alias "$ANDROID_KEY_ALIAS" \
-              --key-pass env:ANDROID_KEYSTORE_PASSWORD \
-              --out "$output" \
-              "$aligned"
-          fi
+            "$aligned"
           "$apksigner_bin" verify --verbose "$output"
-          rm -f "$RUNNER_TEMP/batteryscope-release.keystore" "$aligned"
+          rm -f "$keystore" "$aligned"
       - name: Measure release size
         run: |
           set -euo pipefail
