@@ -65,6 +65,21 @@ class BatteryStore(context: Context) {
         prefs.edit().putFloat("autoCurrentScale", value.coerceIn(0.25, 1000.0).toFloat()).apply()
     }
 
+    @Synchronized
+    fun resetAutoCurrentScale() {
+        prefs.edit().remove("autoCurrentScale").apply()
+    }
+
+    fun referenceCapacityMah(): Double? = prefs.getString("referenceCapacityMah", null)?.toDoubleOrNull()?.takeIf { it in 1000.0..20000.0 }
+
+    @Synchronized
+    fun learnReferenceCapacity(capacityMah: Double) {
+        if (!capacityMah.isFinite() || capacityMah !in 1000.0..20000.0) return
+        val previous = referenceCapacityMah()
+        val updated = if (previous == null) capacityMah else previous * 0.85 + capacityMah * 0.15
+        prefs.edit().putString("referenceCapacityMah", updated.toString()).apply()
+    }
+
     fun screenTimeMillis(): Long = prefs.getLong("screenTimeMillis", 0L).coerceAtLeast(0L)
     fun screenTimeSessionStartMillis(): Long = prefs.getLong("screenTimeSessionStartMillis", 0L)
     fun chargingSinceMillis(): Long? = prefs.getLong("chargingSinceMillis", 0L).takeIf { it > 0L }
@@ -177,7 +192,7 @@ class BatteryStore(context: Context) {
                     val endLevel = o.getInt("el")
                     val startLevel = o.getInt("sl")
                     val endV = o.optDouble("endV", 0.0)
-                    val wear = o.optDouble("wear", if (o.has("mah")) o.getDouble("mah") / DESIGN_CAPACITY_MAH else 0.0)
+                    val wear = o.optDouble("wear", 0.0)
                     val efficiency = o.optDouble("eff", 0.0)
                     add(ChargeSession(o.getLong("start"), o.getLong("end"), startLevel, endLevel, o.getDouble("mah"), o.getDouble("cap"), endV, wear, efficiency))
                 }
