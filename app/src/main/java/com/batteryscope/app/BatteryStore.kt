@@ -4,12 +4,12 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** User-facing measurement preferences. Defaults intentionally mirror the requested UX. */
 data class UiSettings(
-    val currentUnit: String = "A",      // A or mA
-    val energyUnit: String = "Wh",       // Wh or kWh
-    val chargeUnit: String = "Ah",       // Ah or mAh
+    val currentUnit: String = "A",
+    val chargeUnit: String = "Ah",
+    val energyUnit: String = "Wh",
     val temperatureF: Boolean = false,
+    val theme: String = "AUTO", // AUTO, LIGHT, DARK
     val showCurrent: Boolean = true,
     val showPower: Boolean = true,
     val showVoltage: Boolean = true,
@@ -17,7 +17,11 @@ data class UiSettings(
     val showRemainingCharge: Boolean = true,
     val showEnergy: Boolean = true,
     val showChargeTime: Boolean = true,
-    val updateIntervalSeconds: Int = 2
+    val showScreenState: Boolean = false,
+    val invertCharging: Boolean = false,
+    val powerScalar: Float = 1f,
+    val updateIntervalSeconds: Int = 2,
+    val notificationEntries: Set<String> = setOf("W", "A", "V", "%")
 )
 
 class BatteryStore(context: Context) {
@@ -25,9 +29,10 @@ class BatteryStore(context: Context) {
 
     fun settings(): UiSettings = UiSettings(
         currentUnit = prefs.getString("currentUnit", "A") ?: "A",
-        energyUnit = prefs.getString("energyUnit", "Wh") ?: "Wh",
         chargeUnit = prefs.getString("chargeUnit", "Ah") ?: "Ah",
+        energyUnit = "Wh",
         temperatureF = prefs.getBoolean("temperatureF", false),
+        theme = prefs.getString("theme", "AUTO") ?: "AUTO",
         showCurrent = prefs.getBoolean("showCurrent", true),
         showPower = prefs.getBoolean("showPower", true),
         showVoltage = prefs.getBoolean("showVoltage", true),
@@ -35,16 +40,21 @@ class BatteryStore(context: Context) {
         showRemainingCharge = prefs.getBoolean("showRemainingCharge", true),
         showEnergy = prefs.getBoolean("showEnergy", true),
         showChargeTime = prefs.getBoolean("showChargeTime", true),
-        updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 2)
+        showScreenState = prefs.getBoolean("showScreenState", false),
+        invertCharging = prefs.getBoolean("invertCharging", false),
+        powerScalar = prefs.getFloat("powerScalar", 1f),
+        updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 2).coerceIn(1, 10),
+        notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "V", "%")) ?: setOf("W", "A", "V", "%")
     )
 
     @Synchronized
     fun saveSettings(value: UiSettings) {
         prefs.edit()
             .putString("currentUnit", value.currentUnit)
-            .putString("energyUnit", value.energyUnit)
             .putString("chargeUnit", value.chargeUnit)
+            .putString("temperatureF", if (value.temperatureF) "true" else "false")
             .putBoolean("temperatureF", value.temperatureF)
+            .putString("theme", value.theme)
             .putBoolean("showCurrent", value.showCurrent)
             .putBoolean("showPower", value.showPower)
             .putBoolean("showVoltage", value.showVoltage)
@@ -52,7 +62,11 @@ class BatteryStore(context: Context) {
             .putBoolean("showRemainingCharge", value.showRemainingCharge)
             .putBoolean("showEnergy", value.showEnergy)
             .putBoolean("showChargeTime", value.showChargeTime)
+            .putBoolean("showScreenState", value.showScreenState)
+            .putBoolean("invertCharging", value.invertCharging)
+            .putFloat("powerScalar", value.powerScalar)
             .putInt("updateIntervalSeconds", value.updateIntervalSeconds.coerceIn(1, 10))
+            .putStringSet("notificationEntries", value.notificationEntries)
             .apply()
     }
 
@@ -60,12 +74,14 @@ class BatteryStore(context: Context) {
     fun addSample(sample: HistorySample) {
         val list = samples().toMutableList()
         list.add(sample)
-        val trimmed = list.takeLast(1000)
         val array = JSONArray()
-        trimmed.forEach {
+        list.takeLast(1000).forEach { s ->
             array.put(JSONObject().apply {
-                put("t", it.timestamp); put("l", it.level); put("temp", it.temperatureC); put("v", it.voltageV)
-                put("i", it.currentMa ?: JSONObject.NULL)
+                put("t", s.timestamp)
+                put("l", s.level)
+                put("temp", s.temperatureC)
+                put("v", s.voltageV)
+                put("i", s.currentMa ?: JSONObject.NULL)
             })
         }
         prefs.edit().putString("samples", array.toString()).apply()
@@ -75,16 +91,11 @@ class BatteryStore(context: Context) {
     fun samples(): List<HistorySample> {
         val raw = prefs.getString("samples", null) ?: return emptyList()
         return runCatching {
-            val a = JSONArray(raw)
+            val array = JSONArray(raw)
             buildList {
-                for (i in 0 until a.length()) {
-                    val o = a.getJSONObject(i)
-                    add(
-                        HistorySample(
-                            o.getLong("t"), o.getInt("l"), o.getDouble("temp"), o.getDouble("v"),
-                            if (o.isNull("i")) null else o.getDouble("i")
-                        )
-                    )
+                for (i in 0 until array.length()) {
+                    val o = array.getJSONObject(i)
+                    add(HistorySample(o.getLong("t"), o.getInt("l"), o.getDouble("temp"), o.getDouble("v"), if (o.isNull("i")) null else o.getDouble("i")))
                 }
             }
         }.getOrElse { emptyList() }
@@ -95,11 +106,17 @@ class BatteryStore(context: Context) {
         if (sessions().any { kotlin.math.abs(it.startTime - session.startTime) < 5_000L }) return
         val list = sessions().toMutableList().apply { add(session) }
         val array = JSONArray()
-        list.takeLast(50).forEach {
+        list.takeLast(50).forEach { s ->
             array.put(JSONObject().apply {
-                put("start", it.startTime); put("end", it.endTime); put("sl", it.startLevel); put("el", it.endLevel)
-                put("mah", it.chargedMah); put("cap", it.estimatedCapacityMah)
-                put("endV", it.endVoltageV); put("wear", it.wearCycles); put("eff", it.efficiencyPercent)
+                put("start", s.startTime)
+                put("end", s.endTime)
+                put("sl", s.startLevel)
+                put("el", s.endLevel)
+                put("mah", s.chargedMah)
+                put("cap", s.estimatedCapacityMah)
+                put("endV", s.endVoltageV)
+                put("wear", s.wearCycles)
+                put("eff", s.efficiencyPercent)
             })
         }
         prefs.edit().putString("sessions", array.toString()).apply()
@@ -109,29 +126,19 @@ class BatteryStore(context: Context) {
     fun sessions(): List<ChargeSession> {
         val raw = prefs.getString("sessions", null) ?: return emptyList()
         return runCatching {
-            val a = JSONArray(raw)
+            val array = JSONArray(raw)
             buildList {
-                for (i in 0 until a.length()) {
-                    val o = a.getJSONObject(i)
+                for (i in 0 until array.length()) {
+                    val o = array.getJSONObject(i)
                     val endLevel = o.getInt("el")
                     val startLevel = o.getInt("sl")
-                    val legacyEndVoltage = o.optDouble("endV", Double.NaN)
-                    val wear = o.optDouble(
-                        "wear",
-                        if (legacyEndVoltage.isNaN()) 0.0 else estimateWearCycles(legacyEndVoltage, endLevel)
-                    )
-                    val efficiency = o.optDouble(
-                        "eff",
-                        if (wear > 0.0) (endLevel - startLevel) / (wear * 100.0) * 100.0 else 0.0
-                    )
-                    add(
-                        ChargeSession(
-                            o.getLong("start"), o.getLong("end"), startLevel, endLevel,
-                            o.getDouble("mah"), o.getDouble("cap"),
-                            legacyEndVoltage.takeUnless { it.isNaN() } ?: 0.0,
-                            wear, efficiency
-                        )
-                    )
+                    val endV = o.optDouble("endV", 0.0)
+                    val wear = o.optDouble("wear", estimateWearCycles(endV, endLevel))
+                    val efficiency = o.optDouble("eff", if (wear > 0.0) (endLevel - startLevel) / (wear * 100.0) * 100.0 else 0.0)
+                    add(ChargeSession(
+                        o.getLong("start"), o.getLong("end"), startLevel, endLevel,
+                        o.getDouble("mah"), o.getDouble("cap"), endV, wear, efficiency
+                    ))
                 }
             }
         }.getOrElse { emptyList() }
