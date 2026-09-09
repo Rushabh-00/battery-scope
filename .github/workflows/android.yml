@@ -1,23 +1,16 @@
-name: Android
+name: Android Release
 
 on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
-  pull_request:
   workflow_dispatch:
-    inputs:
-      publish_test_release:
-        description: "Publish the build as a GitHub test release"
-        required: true
-        default: true
-        type: boolean
 
 permissions:
   contents: write
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,74 +20,89 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Gradle
+      - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-
-      - name: Validate Gradle project
-        run: gradle help
+      - name: Validate project
+        run: gradle help --stacktrace
 
   build:
-    name: 2 • Build APKs
+    name: 2 • Build Release
     needs: prepare
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Gradle
+      - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-
-      - name: Assemble debug and release APKs
-        run: gradle assembleDebug assembleRelease --build-cache --stacktrace
-
-      - name: Upload APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: BatteryScope-APKs
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-
-  package:
-    name: 4 • Package
-    needs: [build, prepare]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download APKs
-        uses: actions/download-artifact@v4
-        with:
-          name: BatteryScope-APKs
-          path: dist
-
-      - name: Create checksums
+      - name: Assemble optimized release APK
+        run: gradle assembleRelease --build-cache --stacktrace
+      - name: Check signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          find dist -name '*.apk' -type f -print0 | xargs -0 sha256sum | tee SHA256SUMS.txt
-
-      - name: Upload final package
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            test -n "${!name}" || { echo "Missing repository secret: $name"; exit 1; }
+          done
+      - name: Sign and verify release APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/batteryscope-release.keystore"
+          unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          aligned="$RUNNER_TEMP/BatteryScope-aligned.apk"
+          output="dist/BatteryScope-release.apk"
+          zipalign_bin=$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -1)
+          apksigner_bin=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          test -x "$zipalign_bin"
+          test -x "$apksigner_bin"
+          "$zipalign_bin" -P 16 -f 4 "$unsigned" "$aligned"
+          "$apksigner_bin" sign \
+            --ks "$RUNNER_TEMP/batteryscope-release.keystore" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "$output" \
+            "$aligned"
+          "$apksigner_bin" verify --verbose "$output"
+          rm -f "$RUNNER_TEMP/batteryscope-release.keystore" "$aligned"
+      - name: Measure release size
+        run: |
+          set -euo pipefail
+          bytes=$(stat -c%s dist/BatteryScope-release.apk)
+          mb=$(awk -v b="$bytes" 'BEGIN { printf "%.2f", b/1048576 }')
+          echo "BatteryScope-release.apk: ${mb} MiB (${bytes} bytes)"
+          if [ "$bytes" -gt $((7 * 1024 * 1024)) ]; then
+            echo "Release APK is larger than the 7 MiB CI guardrail. Optimize before publishing."
+            exit 1
+          fi
+      - name: Upload signed release
         uses: actions/upload-artifact@v4
         with:
-          name: BatteryScope-final
-          path: |
-            dist/**/*.apk
-            SHA256SUMS.txt
+          name: BatteryScope-release
+          path: dist/BatteryScope-release.apk
           if-no-files-found: error
 
   quality:
@@ -104,25 +112,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Gradle
+      - name: Set up Gradle 9.6
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
+      - name: Run tests and lint
+        run: gradle test lintRelease --build-cache --stacktrace
 
-      - name: Run unit tests
-        run: gradle test --build-cache --stacktrace
+  package:
+    name: 4 • Package
+    needs: [build, prepare]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download signed release
+        uses: actions/download-artifact@v4
+        with:
+          name: BatteryScope-release
+          path: dist
+      - name: Create checksum
+        run: sha256sum dist/BatteryScope-release.apk | tee SHA256SUMS.txt
+      - name: Upload final package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BatteryScope-final
+          path: |
+            dist/BatteryScope-release.apk
+            SHA256SUMS.txt
+          if-no-files-found: error
 
   publish:
-    name: 5 • Publish test release
+    name: 5 • Publish Release
     needs: [quality, package]
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_test_release)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Download final package
@@ -130,32 +156,35 @@ jobs:
         with:
           name: BatteryScope-final
           path: dist
-
-      - name: Publish automatic test release from main
+      - name: Publish main test release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-build.${{ github.run_number }}
-          name: BatteryScope 0.2.0 test build ${{ github.run_number }}
+          tag_name: v0.3.0-build.${{ github.run_number }}
+          name: BatteryScope 0.3.0 test build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: dist/debug/*.apk
-
+          files: |
+            dist/BatteryScope-release.apk
+            dist/SHA256SUMS.txt
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/release/*.apk
-
+          files: |
+            dist/BatteryScope-release.apk
+            dist/SHA256SUMS.txt
       - name: Publish manual test release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_test_release
+        if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-manual.${{ github.run_number }}
-          name: BatteryScope 0.2.0 manual test build ${{ github.run_number }}
+          tag_name: v0.3.0-manual.${{ github.run_number }}
+          name: BatteryScope 0.3.0 manual test build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: dist/debug/*.apk
+          files: |
+            dist/BatteryScope-release.apk
+            dist/SHA256SUMS.txt
