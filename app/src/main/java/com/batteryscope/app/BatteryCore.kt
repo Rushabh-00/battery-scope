@@ -78,7 +78,7 @@ private fun normalizedCurrentMa(rawMicroAmps: Long?, charging: Boolean): Double?
 
 fun readBattery(context: Context, currentScale: Double = 1.0): BatterySnapshot {
     val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-    val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    val intent = context.registerReceiver(null, IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
     val rawLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
     val rawScale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
     val level = if (rawScale > 0) (rawLevel * 100.0 / rawScale).toInt().coerceIn(0, 100) else rawLevel.coerceIn(0, 100)
@@ -104,17 +104,14 @@ fun readBattery(context: Context, currentScale: Double = 1.0): BatterySnapshot {
         averageMa != null -> averageMa
         else -> null
     }
-    val effectiveMa = baseRawMa?.let { it * currentScale.coerceIn(0.25, 1000.0) }
+    val scale = currentScale.coerceIn(0.25, 1000.0)
+    val effectiveMa = baseRawMa?.let { it * scale }
     val powerMagnitudeW = effectiveMa?.let { abs(it) * voltageV / 1000.0 } ?: 0.0
     val signedPowerW = if (charging) powerMagnitudeW else -powerMagnitudeW
-    val chargeTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        bm.computeChargeTimeRemaining().takeIf { it >= 0L }
-    } else null
-    val cycleCount = if (Build.VERSION.SDK_INT >= 34) {
-        intent?.getIntExtra("android.os.extra.CYCLE_COUNT", -1)?.takeIf { it >= 0 }
-    } else null
+    val chargeTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) bm.computeChargeTimeRemaining().takeIf { it >= 0L } else null
+    val cycleCount = if (Build.VERSION.SDK_INT >= 34) intent?.getIntExtra("android.os.extra.CYCLE_COUNT", -1)?.takeIf { it >= 0 } else null
     val chargeCounter = propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf { it >= 0L }
-    val energyCounter = propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)?.takeIf { it >= 0L }
+    val estimatedEnergyNWh = chargeCounter?.let { ((it / 1_000_000.0) * voltageV * 1_000_000_000.0).toLong().takeIf { n -> n >= 0L } }
 
     return BatterySnapshot(
         timestamp = System.currentTimeMillis(),
@@ -124,13 +121,13 @@ fun readBattery(context: Context, currentScale: Double = 1.0): BatterySnapshot {
         status = status,
         technology = intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Unknown",
         currentMa = effectiveMa?.let { if (charging) abs(it) else -abs(it) },
-        averageCurrentMa = averageMa?.let { if (charging) abs(it) else -abs(it) },
+        averageCurrentMa = averageMa?.let { it * scale },
         rawCurrentMa = baseRawMa,
         powerW = signedPowerW,
         chargeTimeRemainingMs = chargeTime,
         cycleCount = cycleCount,
         counterMicroAh = chargeCounter,
-        energyCounterNWh = energyCounter,
+        energyCounterNWh = estimatedEnergyNWh,
         plugged = plugged
     )
 }
@@ -176,22 +173,13 @@ class MeasurementEngine(private val store: BatteryStore) {
                 sessionStartTime = saved.startTime
                 sessionMah = saved.chargedMah
                 sessionPeakVoltage = saved.peakVoltageV
-            } else {
-                store.clearActiveChargeSession()
-            }
+            } else store.clearActiveChargeSession()
         }
     }
 
     private fun checkpoint(snapshot: BatterySnapshot) {
         if (sessionStartLevel == null || snapshot.timestamp - lastCheckpoint < 60_000L) return
-        store.saveActiveChargeSession(
-            ActiveChargeSession(
-                startTime = sessionStartTime ?: snapshot.timestamp,
-                startLevel = sessionStartLevel ?: snapshot.level,
-                chargedMah = sessionMah,
-                peakVoltageV = sessionPeakVoltage
-            )
-        )
+        store.saveActiveChargeSession(ActiveChargeSession(sessionStartTime ?: snapshot.timestamp, sessionStartLevel ?: snapshot.level, sessionMah, sessionPeakVoltage))
         lastCheckpoint = snapshot.timestamp
     }
 
