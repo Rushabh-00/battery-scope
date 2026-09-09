@@ -11,6 +11,7 @@ class BatteryReader(context: Context) {
     private val appContext = context.applicationContext
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val capacityReader = BatteryCapacityReader()
+    private val currentReader = CurrentReader(batteryManager)
 
     fun read(): BatterySnapshot {
         val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -30,10 +31,9 @@ class BatteryReader(context: Context) {
             ?.div(10.0)
 
         val remainingMah = readChargeCounterMah()
-        val currentA = readCurrentA()
+        val currentA = currentReader.readAmps()
         val capacity = capacityReader.read(remainingMah, levelPercent)
-        val estimatedCapacityMah = capacity.estimatedMah
-        val powerW = if (currentA != null && voltageV != null) abs(currentA) * voltageV else null
+        val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
         val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
 
         return BatterySnapshot(
@@ -44,7 +44,7 @@ class BatteryReader(context: Context) {
             temperatureC = temperatureC,
             remainingMah = remainingMah,
             batteryCapacityMah = capacity.designMah,
-            estimatedCapacityMah = estimatedCapacityMah,
+            estimatedCapacityMah = capacity.estimatedMah,
             powerW = powerW,
             energyWh = energyWh,
         )
@@ -54,13 +54,6 @@ class BatteryReader(context: Context) {
         val microAh = batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
             ?: Long.MIN_VALUE
         return microAh.takeIf { it > 0 }?.toDouble()?.div(1000.0)
-    }
-
-    private fun readCurrentA(): Double? {
-        val microAmps = batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-            ?: Long.MIN_VALUE
-        if (microAmps == Long.MIN_VALUE) return null
-        return microAmps.toDouble() / 1_000_000.0
     }
 }
 
