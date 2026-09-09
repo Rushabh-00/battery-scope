@@ -1,9 +1,13 @@
 package com.batteryscope.app
 
-import android.os.BatteryManager
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,104 +16,233 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            BatteryScopeApp()
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        setContent { BatteryScopeApp() }
     }
-}
 
-private data class BatterySnapshot(
-    val level: Int,
-    val temperatureC: Float,
-    val voltageV: Float,
-    val status: String,
-    val technology: String,
-    val currentMa: Int?
-)
-
-private fun readBatterySnapshot(activity: ComponentActivity): BatterySnapshot {
-    val manager = activity.getSystemService(BATTERY_SERVICE) as BatteryManager
-    val intent = activity.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
-    val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
-    val temp = (intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10f
-    val voltage = (intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0) / 1000f
-    val statusCode = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-    val status = when (statusCode) {
-        BatteryManager.BATTERY_STATUS_CHARGING -> "Charging"
-        BatteryManager.BATTERY_STATUS_FULL -> "Full"
-        BatteryManager.BATTERY_STATUS_DISCHARGING -> "Discharging"
-        BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "Not charging"
-        else -> "Unknown"
+    private fun startMonitoring() {
+        val intent = Intent(this, BatteryMonitorService::class.java)
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
     }
-    val current = if (android.os.Build.VERSION.SDK_INT >= 21) {
-        manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).takeIf { it != Int.MIN_VALUE }?.let { it / 1000 }
-    } else null
-    return BatterySnapshot(
-        level = level,
-        temperatureC = temp,
-        voltageV = voltage,
-        status = status,
-        technology = intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Unknown",
-        currentMa = current
-    )
-}
 
-@Composable
-private fun BatteryScopeApp() {
-    val activity = androidx.compose.ui.platform.LocalContext.current as ComponentActivity
-    val battery = remember { readBatterySnapshot(activity) }
+    private fun stopMonitoring() = stopService(Intent(this, BatteryMonitorService::class.java))
 
-    MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text("BatteryScope", style = MaterialTheme.typography.headlineMedium)
-                Text("Realme 9 5G Speed Edition", style = MaterialTheme.typography.bodyMedium)
+    @androidx.compose.runtime.Composable
+    private fun BatteryScopeApp() {
+        val store = remember { BatteryStore(this) }
+        var battery by remember { mutableStateOf(readBattery(this)) }
+        var tab by remember { mutableIntStateOf(0) }
+        var monitoring by remember { mutableStateOf(false) }
+        var refreshKey by remember { mutableIntStateOf(0) }
 
-                Card(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Text("Battery level", style = MaterialTheme.typography.labelLarge)
-                        Spacer(Modifier.height(4.dp))
-                        Text("${battery.level}%", style = MaterialTheme.typography.displayMedium)
-                        Text(battery.status, style = MaterialTheme.typography.bodyLarge)
+        LaunchedEffect(refreshKey) {
+            while (true) {
+                battery = readBattery(this@MainActivity)
+                refreshKey++
+                kotlinx.coroutines.delay(2_000)
+            }
+        }
+
+        val sessions = store.sessions()
+        val health = estimateHealth(sessions)
+        val samples = store.samples()
+
+        MaterialTheme {
+            Scaffold(
+                topBar = {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
+                        Text("BatteryScope", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text("Realme 9 5G Speed Edition", style = MaterialTheme.typography.bodyMedium)
+                    }
+                },
+                bottomBar = {
+                    NavigationBar {
+                        NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("⌂") }, label = { Text("Dashboard") })
+                        NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("♥") }, label = { Text("Health") })
+                        NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("≋") }, label = { Text("History") })
                     }
                 }
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MetricCard("Temperature", "%.1f °C".format(battery.temperatureC), Modifier.weight(1f))
-                    MetricCard("Voltage", "%.3f V".format(battery.voltageV), Modifier.weight(1f))
+            ) { padding ->
+                Surface(modifier = Modifier.fillMaxSize().padding(padding)) {
+                    when (tab) {
+                        0 -> Dashboard(battery, monitoring, { monitoring = true; startMonitoring() }, { monitoring = false; stopMonitoring() })
+                        1 -> HealthScreen(health, sessions)
+                        else -> HistoryScreen(samples)
+                    }
                 }
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MetricCard("Current", battery.currentMa?.let { "${it} mA" } ?: "Unavailable", Modifier.weight(1f))
-                    MetricCard("Technology", battery.technology, Modifier.weight(1f))
-                }
-
-                Text(
-                    "Capacity and health estimates will be added after the live dashboard is verified.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
             }
         }
     }
 }
 
-@Composable
+@androidx.compose.runtime.Composable
+private fun Dashboard(
+    battery: BatterySnapshot,
+    monitoring: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Battery level", style = MaterialTheme.typography.labelLarge)
+                    Text("${battery.level}%", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+                    Text(battery.status, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Temperature: ${"%.1f".format(battery.temperatureC)} °C • ${classifyTemperature(battery.temperatureC)}")
+                }
+            }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard("Voltage", "${"%.3f".format(battery.voltageV)} V", Modifier.weight(1f))
+                MetricCard("Current", battery.currentMa?.let { "${"%.0f".format(it)} mA" } ?: "Unavailable", Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard("Power", battery.powerW?.let { "${"%.2f".format(it)} W" } ?: "Unavailable", Modifier.weight(1f))
+                MetricCard("Technology", battery.technology, Modifier.weight(1f))
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("Capacity reference", style = MaterialTheme.typography.labelLarge)
+                    Text("5,000 mAh", style = MaterialTheme.typography.headlineSmall)
+                    Text("Design capacity used for health calculations. Actual device calibration may differ.")
+                }
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("Background monitoring", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(if (monitoring) "Running • samples are being collected every 30 seconds." else "Off • start it to keep collecting while the app is closed.")
+                    Spacer(Modifier.height(10.dp))
+                    if (monitoring) OutlinedButton(onClick = onStop) { Text("Stop monitoring") }
+                    else Button(onClick = onStart) { Text("Start monitoring") }
+                }
+            }
+        }
+        item {
+            Text("Transparency", style = MaterialTheme.typography.titleMedium)
+            Text("Android-reported values are shown directly. Capacity and health are estimates derived from repeated charge sessions.", style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun HealthScreen(health: HealthEstimate, sessions: List<ChargeSession>) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp)) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Estimated battery health", style = MaterialTheme.typography.labelLarge)
+                    Text(health.healthPercent?.let { "${"%.1f".format(it)}%" } ?: "Collecting data", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+                    Text(health.capacityMah?.let { "Estimated capacity: ${"%.0f".format(it)} mAh" } ?: "No usable full-charge measurements yet")
+                    Spacer(Modifier.height(8.dp))
+                    Text("Confidence: ${health.confidencePercent}%", fontWeight = FontWeight.SemiBold)
+                    Text("${health.completedSessions} usable charging session(s)")
+                }
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("How it works", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("BatteryScope integrates charging current over time, relates the measured charge to the percentage gained, and averages completed sessions. One partial session is not treated as a trustworthy battery-health result.")
+                }
+            }
+        }
+        item { Text("Completed sessions", style = MaterialTheme.typography.titleMedium) }
+        items(sessions.reversed()) { session ->
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("${session.startLevel}% → ${session.endLevel}%", fontWeight = FontWeight.SemiBold)
+                    Text("Charged: ${"%.0f".format(session.chargedMah)} mAh")
+                    Text("Estimated capacity: ${"%.0f".format(session.estimatedCapacityMah)} mAh")
+                    Text(DateFormat.getDateTimeInstance().format(Date(session.endTime)), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun HistoryScreen(samples: List<HistorySample>) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("Temperature & power history", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Stored locally on the device. Maximum 500 samples.")
+        }
+        item { HorizontalDivider() }
+        items(samples.reversed().take(100)) { sample ->
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("${sample.level}% • ${"%.1f".format(sample.temperatureC)} °C")
+                        Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(sample.timestamp)), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Column {
+                        Text("${"%.3f".format(sample.voltageV)} V")
+                        Text(sample.currentMa?.let { "${"%.0f".format(it)} mA" } ?: "—", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+        if (samples.isEmpty()) item { Text("No history yet. Start monitoring to collect samples.") }
+    }
+}
+
+@androidx.compose.runtime.Composable
 private fun MetricCard(title: String, value: String, modifier: Modifier = Modifier) {
     Card(modifier = modifier, shape = RoundedCornerShape(20.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
