@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -92,11 +93,12 @@ private fun LiveScreen(settings: AppSettings, onSettings: () -> Unit) {
     val context = LocalContext.current
     val reader = remember(context) { BatteryReader(context) }
     var battery by remember { mutableStateOf<BatterySnapshot?>(null) }
+    val updateIntervalMs = settings.updateIntervalMs
 
-    LaunchedEffect(reader) {
+    LaunchedEffect(reader, updateIntervalMs) {
         while (true) {
             battery = reader.read()
-            delay(1200L)
+            delay(updateIntervalMs)
         }
     }
 
@@ -179,10 +181,10 @@ private fun metrics(b: BatterySnapshot, s: AppSettings): List<Pair<Metric, Metri
         Metric("Current", b.currentA?.let { currentText(it, s.currentUnit) } ?: "Unavailable", "Live battery current"),
         Metric("Voltage", b.voltageV?.let { "${f1(it)} V" } ?: "Unavailable", "Battery voltage"),
         Metric("Temperature", b.temperatureC?.let { tempText(it, s.temperatureUnit) } ?: "Unavailable", "Battery temperature"),
-        Metric("Energy", energyText(b, s.chargeUnit), "Wh / selected charge unit"),
+        Metric("Energy", energyText(b), "Wh / Ah"),
         Metric("Charge level", "${b.levelPercent}%", "Battery level"),
         Metric("Charging", if (b.charging) "Yes" else "No", "Current state"),
-        Metric("Battery capacity", b.batteryCapacityMah?.let { "${f0(it)} mAh" } ?: "Unavailable", "Design/reference"),
+        Metric("Design capacity", b.batteryCapacityMah?.let { "${f0(it)} mAh" } ?: "Unavailable", "Design capacity"),
         Metric("Remaining", b.remainingMah?.let { "${f0(it)} mAh" } ?: "Unavailable", "Charge counter"),
         Metric("Estimated capacity", b.estimatedCapacityMah?.let { "${f0(it)} mAh" } ?: "Awaiting completed session", "Session learned only"),
     )
@@ -205,7 +207,7 @@ private fun CapacityCard(b: BatterySnapshot, a: com.batteryscope.app.battery.Bat
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Text("Capacity & health", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
-            Stat("Reference capacity", b.batteryCapacityMah?.let { "${f0(it)} mAh" } ?: "Not detected / not set")
+            Stat("Design capacity", b.batteryCapacityMah?.let { "${f0(it)} mAh" } ?: "Not detected / not set")
             Stat("Learned capacity", a.learnedCapacityMah?.let { "${f0(it)} mAh" } ?: "Awaiting completed session")
             Stat("Latest full-charge", a.latestSessionCapacityMah?.let { "${f0(it)} mAh" } ?: "—")
             Stat("Battery health", a.healthPercent?.let { "${f0(it)}%" } ?: "Awaiting completed session")
@@ -263,9 +265,9 @@ private fun HistoryCard(a: com.batteryscope.app.battery.BatterySessionAnalyzer.A
 private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPreferences.Theme) -> Unit, settings: AppSettings, onBack: () -> Unit) {
     val context = LocalContext.current
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
-    var chargeUnit by remember { mutableStateOf(settings.chargeUnit) }
     var tempUnit by remember { mutableStateOf(settings.temperatureUnit) }
     var invert by remember { mutableStateOf(settings.invertChargingPolarity) }
+    var updateIntervalMs by remember { mutableStateOf(settings.updateIntervalMs) }
     var capacity by remember { mutableStateOf(CapacityPreferences(context).designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
 
@@ -284,14 +286,17 @@ private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPrefer
                 }
                 item { Section("Appearance") { Choice("Theme", UiPreferences.Theme.entries.map { it.value }, theme.value) { onThemeChanged(UiPreferences.Theme.fromValue(it)) } } }
                 item { Section("Units") {
-                    Choice("Current", AppSettings.CurrentUnit.entries.map { it.value }, currentUnit.value) { currentUnit = AppSettings.CurrentUnit.fromValue(it); settings.currentUnit = currentUnit }
-                    Spacer(Modifier.height(12.dp))
-                    Choice("Charge", AppSettings.ChargeUnit.entries.map { it.value }, chargeUnit.value) { chargeUnit = AppSettings.ChargeUnit.fromValue(it); settings.chargeUnit = chargeUnit }
-                    Spacer(Modifier.height(12.dp))
-                    Choice("Temperature", AppSettings.TemperatureUnit.entries.map { it.value }, tempUnit.value) { tempUnit = AppSettings.TemperatureUnit.fromValue(it); settings.temperatureUnit = tempUnit }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Choice("Current", AppSettings.CurrentUnit.entries.map { it.value }, currentUnit.value) { currentUnit = AppSettings.CurrentUnit.fromValue(it); settings.currentUnit = currentUnit }
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Choice("Temperature", AppSettings.TemperatureUnit.entries.map { it.value }, tempUnit.value) { tempUnit = AppSettings.TemperatureUnit.fromValue(it); settings.temperatureUnit = tempUnit }
+                        }
+                    }
                 } }
                 item { Section("Battery capacity") {
-                    Text("Design / reference capacity", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Design capacity", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = capacity, onValueChange = { capacity = it; message = "" }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Battery capacity (mAh)") }, placeholder = { Text("Example: 4500") })
                     Spacer(Modifier.height(8.dp))
@@ -305,9 +310,28 @@ private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPrefer
                     }
                     if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    Text("This reference is editable and is used only for health/wear. Learned capacity is never shown until a valid full-charge session completes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("This design capacity is editable and is used only for health/wear. Learned capacity is never shown until a valid full-charge session completes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } }
                 item { Section("Telemetry") {
+                    Text("Update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                    Text("How often BatteryScope refreshes live battery readings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    Text(formatInterval(updateIntervalMs), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Slider(
+                        value = updateIntervalMs.toFloat(),
+                        onValueChange = { value ->
+                            val rounded = (value / 250f).roundToInt() * 250L
+                            updateIntervalMs = rounded.coerceIn(1_250L, 10_000L)
+                        },
+                        valueRange = 1_250f..10_000f,
+                        steps = 34,
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("1.25 s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("10 s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    settings.updateIntervalMs = updateIntervalMs
+                    Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f).padding(end = 16.dp)) {
                             Text("Invert charging polarity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
@@ -356,11 +380,11 @@ private fun LoadingCard() = Card(shape = RoundedCornerShape(22.dp)) {
 
 private fun currentText(v: Double, u: AppSettings.CurrentUnit) = if (u == AppSettings.CurrentUnit.AMPERE) "${f1(v)} A" else "${f0(v * 1000)} mA"
 private fun tempText(v: Double, u: AppSettings.TemperatureUnit) = if (u == AppSettings.TemperatureUnit.CELSIUS) "${f1(v)} °C" else "${f1(v * 9 / 5 + 32)} °F"
-private fun energyText(b: BatterySnapshot, u: AppSettings.ChargeUnit): String {
+private fun energyText(b: BatterySnapshot): String {
     if (b.energyWh == null || b.remainingMah == null) return "Unavailable"
-    val charge = if (u == AppSettings.ChargeUnit.MILLIAMP_HOUR) "${f0(b.remainingMah)} mAh" else "${f3(b.remainingMah / 1000)} Ah"
-    return "${f2(b.energyWh)} Wh / $charge"
+    return "${f2(b.energyWh)} Wh / ${f3(b.remainingMah / 1000)} Ah"
 }
+private fun formatInterval(ms: Long) = if (ms % 1000L == 0L) "${ms / 1000L} s" else String.format(Locale.US, "%.2f s", ms / 1000f)
 private fun duration(ms: Long): String {
     if (ms <= 0) return "0 min"
     val mins = ms / 60000
