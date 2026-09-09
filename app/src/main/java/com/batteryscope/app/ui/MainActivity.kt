@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -121,9 +120,6 @@ private fun LiveScreen(settings: AppSettings, onSettings: () -> Unit) {
                     item { LoadingCard() }
                 } else {
                     item { Hero(value, settings) }
-                    items(listOf(Metric("Energy", energyText(value), "Wh / Ah"))) { metric ->
-                        MetricCard(metric)
-                    }
                     value.sessionAnalysis?.let { analysis ->
                         item { CapacityHealthCard(value, analysis) }
                         item { HistoryCard(analysis) }
@@ -161,16 +157,40 @@ private fun Hero(battery: BatterySnapshot, settings: AppSettings) {
         Column(Modifier.fillMaxWidth().padding(22.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text("Battery", style = MaterialTheme.typography.labelLarge)
-                    Text("${battery.levelPercent}%", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${battery.levelPercent}%",
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
-                Column(horizontalAlignment = Alignment.End) {
+                Column(
+                    Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Energy", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        battery.energyWh?.let { "${f2(it)} Wh" } ?: "—",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        battery.remainingMah?.let { "${f3(it / 1000)} Ah" } ?: "—",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                Column(
+                    Modifier.weight(1f),
+                    horizontalAlignment = Alignment.End,
+                ) {
                     Text(if (battery.charging) "Charging" else "Discharging", fontWeight = FontWeight.Bold)
-                    Text(battery.powerW?.let { "${f1(it)} W" } ?: "—", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        battery.powerW?.let { "${f1(it)} W" } ?: "—",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -191,21 +211,6 @@ private fun Mini(label: String, value: String) = Column {
     Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 }
 
-private data class Metric(val title: String, val value: String, val detail: String)
-
-@Composable
-private fun MetricCard(m: Metric, modifier: Modifier = Modifier) = Card(
-    modifier,
-    shape = RoundedCornerShape(22.dp),
-) {
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Text(m.title, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(4.dp))
-        Text(m.value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        Text(m.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
 @Composable
 private fun CapacityHealthCard(
     battery: BatterySnapshot,
@@ -223,18 +228,11 @@ private fun CapacityHealthCard(
             Stat("Wear", analysis.wearMah?.let { "${f0(it)} mAh" } ?: "—")
             Stat("Remaining charge", battery.remainingMah?.let { "${f0(it)} mAh" } ?: "Unavailable")
             Stat("Estimated capacity", analysis.learnedCapacityMah?.let { "${f0(it)} mAh" } ?: "Awaiting completed session")
+            Stat("Charge", "${f0(analysis.chargeMah)} mAh • ${duration(analysis.chargeTimeMs)}")
+            Stat("Discharge", "${f0(analysis.dischargeMah)} mAh • ${duration(analysis.dischargeTimeMs)}")
 
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider()
             Spacer(Modifier.height(12.dp))
-
-            Text("Charge & discharge", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Flow("Charge", "${f0(analysis.chargeMah)} mAh", duration(analysis.chargeTimeMs), Modifier.weight(1f))
-                Flow("Discharge", "${f0(analysis.dischargeMah)} mAh", duration(analysis.dischargeTimeMs), Modifier.weight(1f))
-            }
-
+            HorizontalDivider()
             Spacer(Modifier.height(12.dp))
             Text(
                 "A session is valid only after the battery has been sampled at 15% or lower while discharging, then charged to full. Health averages up to five completed sessions.",
@@ -242,15 +240,6 @@ private fun CapacityHealthCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun Flow(title: String, amount: String, time: String, modifier: Modifier) = Card(modifier) {
-    Column(Modifier.padding(14.dp)) {
-        Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(amount, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -515,11 +504,6 @@ private fun currentText(v: Double, u: AppSettings.CurrentUnit) =
 
 private fun tempText(v: Double, u: AppSettings.TemperatureUnit) =
     if (u == AppSettings.TemperatureUnit.CELSIUS) "${f1(v)} °C" else "${f1(v * 9 / 5 + 32)} °F"
-
-private fun energyText(b: BatterySnapshot): String {
-    if (b.energyWh == null || b.remainingMah == null) return "Unavailable"
-    return "${f2(b.energyWh)} Wh / ${f3(b.remainingMah / 1000)} Ah"
-}
 
 private fun duration(ms: Long): String {
     if (ms <= 0) return "0 min"
