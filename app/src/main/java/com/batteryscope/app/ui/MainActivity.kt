@@ -12,6 +12,7 @@ import kotlin.math.roundToInt
 class MainActivity : android.app.Activity() {
     private lateinit var reader: BatteryReader
     private var temperatureF = false
+    private lateinit var temperatureLabel: TextView
     private lateinit var values: List<TextView>
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,12 +27,6 @@ class MainActivity : android.app.Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
         }
-
-        root.addView(TextView(this).apply {
-            text = "BatteryScope"
-            textSize = 28f
-            setPadding(0, 0, 0, 24)
-        })
 
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -57,6 +52,13 @@ class MainActivity : android.app.Activity() {
             row.addView(TextView(this).apply {
                 text = label
                 textSize = 14f
+                if (label == "Temperature") {
+                    temperatureLabel = this
+                    setOnClickListener {
+                        temperatureF = !temperatureF
+                        refresh()
+                    }
+                }
             })
             TextView(this).also { value ->
                 value.textSize = 20f
@@ -67,17 +69,6 @@ class MainActivity : android.app.Activity() {
             }
         }
 
-        val tempButton = TextView(this).apply {
-            text = "Temperature: °C"
-            textSize = 14f
-            setPadding(0, 20, 0, 20)
-            setOnClickListener {
-                temperatureF = !temperatureF
-                text = if (temperatureF) "Temperature: °F" else "Temperature: °C"
-                refresh()
-            }
-        }
-        list.addView(tempButton, 0)
         scroll.addView(list)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -85,6 +76,8 @@ class MainActivity : android.app.Activity() {
 
     private fun refresh() {
         val b = reader.read()
+        temperatureLabel.text = if (temperatureF) "Temperature (°F)" else "Temperature (°C)"
+
         val temp = b.temperatureC?.let {
             if (temperatureF) "${((it * 9.0 / 5.0) + 32.0).roundToInt()} °F"
             else "${format1(it)} °C"
