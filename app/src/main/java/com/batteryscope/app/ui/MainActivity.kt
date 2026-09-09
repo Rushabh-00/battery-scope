@@ -6,6 +6,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.batteryscope.app.battery.BatteryReader
+import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : android.app.Activity() {
@@ -25,34 +26,38 @@ class MainActivity : android.app.Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
         }
-        val title = TextView(this).apply {
+
+        root.addView(TextView(this).apply {
             text = "BatteryScope"
             textSize = 28f
             setPadding(0, 0, 0, 24)
-        }
-        root.addView(title)
+        })
 
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val labels = listOf(
-            "Power (Watt)",
-            "Current (Ampere)",
-            "Voltage (V)",
+            "Power",
+            "Current",
+            "Voltage",
             "Temperature",
-            "Energy (Wh / Ah)",
+            "Energy",
             "Charge level",
             "Charging status",
-            "Battery capacity (mAh)",
-            "Remaining battery (mAh)",
-            "Estimated capacity (mAh)",
+            "Battery capacity",
+            "Remaining battery",
+            "Estimated capacity",
             "Battery health"
         )
+
         values = labels.map { label ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 10, 0, 10)
             }
-            row.addView(TextView(this).apply { text = label; textSize = 14f })
+            row.addView(TextView(this).apply {
+                text = label
+                textSize = 14f
+            })
             TextView(this).also { value ->
                 value.textSize = 20f
                 value.gravity = Gravity.START
@@ -61,6 +66,7 @@ class MainActivity : android.app.Activity() {
                 value
             }
         }
+
         val tempButton = TextView(this).apply {
             text = "Temperature: °C"
             textSize = 14f
@@ -80,27 +86,35 @@ class MainActivity : android.app.Activity() {
     private fun refresh() {
         val b = reader.read()
         val temp = b.temperatureC?.let {
-            if (temperatureF) "${((it * 9.0 / 5.0) + 32.0).roundToInt()} °F" else "%.1f °C".format(it)
+            if (temperatureF) "${((it * 9.0 / 5.0) + 32.0).roundToInt()} °F"
+            else "${format1(it)} °C"
         } ?: "Unavailable"
-        val capacity = "Unavailable"
-        val health = "Not calculated yet"
+
         val energy = if (b.energyWh != null && b.remainingMah != null) {
-            "%.2f Wh / %.0f mAh".format(b.energyWh, b.remainingMah)
-        } else "Unavailable"
+            "${format2(b.energyWh)} Wh / ${format3(b.remainingMah / 1000.0)} Ah"
+        } else {
+            "Unavailable"
+        }
 
         val rendered = listOf(
-            b.powerW?.let { "%.2f W".format(it) } ?: "Unavailable",
-            b.currentA?.let { "%.3f A".format(it) } ?: "Unavailable",
-            b.voltageV?.let { "%.3f V".format(it) } ?: "Unavailable",
+            b.powerW?.let { "${format2(it)} W" } ?: "Unavailable",
+            b.currentA?.let { "${format2(it)} A" } ?: "Unavailable",
+            b.voltageV?.let { "${format1(it)} V" } ?: "Unavailable",
             temp,
             energy,
             "${b.levelPercent}%",
             if (b.charging) "Yes" else "No",
-            capacity,
-            b.remainingMah?.let { "%.0f mAh".format(it) } ?: "Unavailable",
-            b.estimatedCapacityMah?.let { "%.0f mAh".format(it) } ?: "Learning / unavailable",
-            health,
+            "Unavailable",
+            b.remainingMah?.let { "${format0(it)} mAh" } ?: "Unavailable",
+            b.estimatedCapacityMah?.let { "${format0(it)} mAh" } ?: "Learning / unavailable",
+            "Not calculated yet",
         )
+
         values.forEachIndexed { index, view -> view.text = rendered[index] }
     }
+
+    private fun format0(value: Double): String = String.format(Locale.US, "%.0f", value)
+    private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
+    private fun format2(value: Double): String = String.format(Locale.US, "%.2f", value)
+    private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
 }
