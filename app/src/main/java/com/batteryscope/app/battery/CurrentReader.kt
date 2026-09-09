@@ -33,8 +33,7 @@ class CurrentReader(
 
     private fun readSysfsCandidates(target: MutableList<Candidate>) {
         val root = File("/sys/class/power_supply")
-        val entries = root.listFiles().orEmpty()
-        for (entry in entries) {
+        for (entry in root.listFiles().orEmpty()) {
             val path = File(entry, "current_now")
             if (!path.isFile || !path.canRead()) continue
             val raw = path.readText().trim().toDoubleOrNull() ?: continue
@@ -49,7 +48,7 @@ class CurrentReader(
         val correctionPenalty: Int,
     )
 
-    /** Try common scales and 0.5x, 1x, 2x and 1000x correction factors. */
+    /** Try common Android/sysfs current scales and modest correction factors. */
     private fun normalizeCandidates(raw: Double): List<Candidate> {
         val magnitude = abs(raw)
         if (!magnitude.isFinite() || magnitude == 0.0) return emptyList()
