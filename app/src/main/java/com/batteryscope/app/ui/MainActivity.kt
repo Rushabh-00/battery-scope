@@ -1,18 +1,28 @@
 package com.batteryscope.app.ui
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.batteryscope.app.battery.BatteryReader
+import com.batteryscope.app.battery.ChargeDischargeTracker
 import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : android.app.Activity() {
     private lateinit var reader: BatteryReader
+    private val tracker = ChargeDischargeTracker()
+    private val handler = Handler(Looper.getMainLooper())
+    private val refreshTask = object : Runnable {
+        override fun run() {
+            refresh()
+            handler.postDelayed(this, 5_000L)
+        }
+    }
     private var temperatureF = false
-    private lateinit var temperatureLabel: TextView
     private lateinit var values: List<TextView>
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,6 +30,16 @@ class MainActivity : android.app.Activity() {
         reader = BatteryReader(this)
         buildUi()
         refresh()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        handler.post(refreshTask)
+    }
+
+    override fun onStop() {
+        handler.removeCallbacks(refreshTask)
+        super.onStop()
     }
 
     private fun buildUi() {
@@ -41,6 +61,8 @@ class MainActivity : android.app.Activity() {
             "Battery capacity",
             "Remaining battery",
             "Estimated capacity",
+            "Charge",
+            "Discharge",
             "Battery health"
         )
 
@@ -52,13 +74,6 @@ class MainActivity : android.app.Activity() {
             row.addView(TextView(this).apply {
                 text = label
                 textSize = 14f
-                if (label == "Temperature") {
-                    temperatureLabel = this
-                    setOnClickListener {
-                        temperatureF = !temperatureF
-                        refresh()
-                    }
-                }
             })
             TextView(this).also { value ->
                 value.textSize = 20f
@@ -69,6 +84,16 @@ class MainActivity : android.app.Activity() {
             }
         }
 
+        val tempButton = TextView(this).apply {
+            text = "Temperature"
+            textSize = 14f
+            setPadding(0, 20, 0, 20)
+            setOnClickListener {
+                temperatureF = !temperatureF
+                refresh()
+            }
+        }
+        list.addView(tempButton, 0)
         scroll.addView(list)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -76,8 +101,7 @@ class MainActivity : android.app.Activity() {
 
     private fun refresh() {
         val b = reader.read()
-        temperatureLabel.text = if (temperatureF) "Temperature (°F)" else "Temperature (°C)"
-
+        tracker.update(b.remainingMah, b.charging)
         val temp = b.temperatureC?.let {
             if (temperatureF) "${((it * 9.0 / 5.0) + 32.0).roundToInt()} °F"
             else "${format1(it)} °C"
@@ -100,6 +124,8 @@ class MainActivity : android.app.Activity() {
             "Unavailable",
             b.remainingMah?.let { "${format0(it)} mAh" } ?: "Unavailable",
             b.estimatedCapacityMah?.let { "${format0(it)} mAh" } ?: "Learning / unavailable",
+            "${format0(tracker.chargedMah())} mAh",
+            "${format0(tracker.dischargedMah())} mAh",
             "Not calculated yet",
         )
 
