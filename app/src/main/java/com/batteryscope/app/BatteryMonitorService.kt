@@ -100,11 +100,10 @@ class BatteryMonitorService : Service() {
         )
     }
 
-    private fun metricLabel(key: String, settings: UiSettings): String = when (key) {
+    private fun metricLabel(key: String): String = when (key) {
         "W" -> "Power"
         "A" -> "Current"
-        "mAh" -> "Charge"
-        "Ah" -> "Charge"
+        "mAh", "Ah" -> "Charge"
         "°C" -> "Temperature"
         "V" -> "Voltage"
         "Wh" -> "Energy"
@@ -167,7 +166,7 @@ class BatteryMonitorService : Service() {
         val primary = settings.notificationIndicator.takeIf { it in METRICS } ?: "W"
         val primaryUnit = metricUnit(primary, settings)
         val primaryValue = metricValue(primary, battery, settings)
-        val openIntent = Intent(this, MainActivity::class.java).apply {
+        val openIntent = Intent(this, MainActivity2::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
@@ -189,7 +188,7 @@ class BatteryMonitorService : Service() {
             .sortedBy { METRIC_ORDER.indexOf(it) }
         val style = Notification.InboxStyle()
         extras.forEach { key ->
-            style.addLine("${metricLabel(key, settings)}  ${metricValue(key, battery, settings)} ${metricUnit(key, settings)}")
+            style.addLine("${metricLabel(key)}  ${metricValue(key, battery, settings)} ${metricUnit(key, settings)}")
         }
         if (battery.charging && settings.showChargeTime) {
             chargeTimeText(battery)?.let { style.addLine("Full in  $it") }
