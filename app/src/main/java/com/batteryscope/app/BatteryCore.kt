@@ -6,9 +6,10 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import kotlin.math.abs
-import kotlin.math.max
+import kotlin.math.pow
 
 const val DESIGN_CAPACITY_MAH = 5000.0
+const val REFERENCE_FULL_VOLTAGE = 4.35
 
 data class BatterySnapshot(
     val timestamp: Long,
@@ -41,7 +42,10 @@ data class ChargeSession(
     val startLevel: Int,
     val endLevel: Int,
     val chargedMah: Double,
-    val estimatedCapacityMah: Double
+    val estimatedCapacityMah: Double,
+    val endVoltageV: Double,
+    val wearCycles: Double,
+    val efficiencyPercent: Double
 )
 
 data class HistorySample(
@@ -96,23 +100,37 @@ fun classifyTemperature(temp: Double): String = when {
     else -> "Cool"
 }
 
+fun healthConfidence(sessionCount: Int): Int = when {
+    sessionCount <= 0 -> 0
+    sessionCount == 1 -> 20
+    sessionCount == 2 -> 35
+    sessionCount == 3 -> 50
+    sessionCount == 4 -> 60
+    sessionCount <= 7 -> 75
+    else -> 90
+}
+
 fun estimateHealth(sessions: List<ChargeSession>): HealthEstimate {
-    if (sessions.isEmpty()) return HealthEstimate(null, null, 0, 0, "Estimated from charge sessions")
-    val valid = sessions.map { it.estimatedCapacityMah }.filter { it in 2500.0..6500.0 }
-    if (valid.isEmpty()) return HealthEstimate(null, null, 0, 0, "Insufficient usable sessions")
-    val sorted = valid.sorted()
-    val trimmed = if (sorted.size >= 5) sorted.drop(1).dropLast(1) else sorted
-    val mean = trimmed.average()
-    val health = (mean / DESIGN_CAPACITY_MAH * 100.0).coerceIn(0.0, 100.0)
-    val confidence = when (valid.size) {
-        1 -> 20
-        2 -> 35
-        3 -> 50
-        4 -> 60
-        in 5..7 -> 75
-        else -> 90
-    }
-    return HealthEstimate(mean, health, confidence, valid.size, "Estimated from repeated charging sessions")
+    if (sessions.isEmpty()) return HealthEstimate(null, null, 0, 0, "Estimated from charging sessions")
+    val valid = sessions.filter { it.endLevel - it.startLevel >= 60 && it.estimatedCapacityMah in 2500.0..6500.0 }
+    if (valid.isEmpty()) return HealthEstimate(null, null, 0, 0, "Need a charge session covering at least 60 percentage points")
+
+    // Like AccuBattery's health approach, favor the most recent usable sessions.
+    val recent = valid.takeLast(5)
+    val capacity = recent.map { it.estimatedCapacityMah }.average()
+    val health = (capacity / DESIGN_CAPACITY_MAH * 100.0).coerceIn(0.0, 120.0)
+    return HealthEstimate(capacity, health, healthConfidence(recent.size), recent.size, "Estimated from the last ${recent.size} usable charge sessions")
+}
+
+// Battery wear is a model, not a directly measured Android value. Higher end-of-charge
+// voltage is assigned a higher cycle-cost multiplier, following the well-known Li-ion
+// principle used by AccuBattery: roughly every 0.1 V lower end voltage halves wear.
+fun estimateWearCycles(endVoltageV: Double, endLevel: Int): Double {
+    if (endLevel < 60 || endVoltageV <= 0.0) return 0.0
+    val clampedV = endVoltageV.coerceIn(3.95, REFERENCE_FULL_VOLTAGE)
+    val highVoltageWear = 2.0.pow(10.0 * (clampedV - REFERENCE_FULL_VOLTAGE))
+    val linearPart = if (endVoltageV < 3.95) 0.0625 else 1.0
+    return (highVoltageWear * linearPart).coerceIn(0.01, 2.0)
 }
 
 class MeasurementEngine(private val store: BatteryStore) {
@@ -120,34 +138,62 @@ class MeasurementEngine(private val store: BatteryStore) {
     private var sessionStartLevel: Int? = null
     private var sessionStartTime: Long? = null
     private var sessionMah: Double = 0.0
+    private var sessionPeakVoltage: Double = 0.0
 
     fun observe(snapshot: BatterySnapshot) {
         val previous = lastSample
         if (previous != null && snapshot.charging && snapshot.currentMa != null) {
             val dtHours = (snapshot.timestamp - previous.timestamp).coerceAtLeast(0L) / 3_600_000.0
-            if (dtHours in 0.0..0.05) sessionMah += abs(snapshot.currentMa) * dtHours
+            if (dtHours in 0.0..0.10) sessionMah += abs(snapshot.currentMa) * dtHours
         }
-        if (snapshot.charging && sessionStartLevel == null && snapshot.level < 99) {
+
+        if (snapshot.charging && sessionStartLevel == null && snapshot.level < 100) {
             sessionStartLevel = snapshot.level
             sessionStartTime = snapshot.timestamp
             sessionMah = 0.0
+            sessionPeakVoltage = snapshot.voltageV
         }
-        if (sessionStartLevel != null && snapshot.level >= 99 && snapshot.charging) {
+
+        if (sessionStartLevel != null && snapshot.charging) {
+            sessionPeakVoltage = maxOf(sessionPeakVoltage, snapshot.voltageV)
+        }
+
+        val completed = sessionStartLevel != null && (snapshot.level >= 99 || snapshot.status == "Full")
+        if (completed) {
             val start = sessionStartLevel ?: snapshot.level
-            val delta = (snapshot.level - start).coerceAtLeast(1)
-            val estimate = if (sessionMah > 50.0) sessionMah * 100.0 / delta else 0.0
-            if (estimate in 2500.0..6500.0) {
-                store.addSession(ChargeSession(sessionStartTime ?: snapshot.timestamp, snapshot.timestamp, start, snapshot.level, sessionMah, estimate))
+            val delta = snapshot.level - start
+            val estimate = if (delta > 0 && sessionMah > 50.0) sessionMah * 100.0 / delta else 0.0
+            if (delta >= 60 && estimate in 2500.0..6500.0) {
+                val wear = estimateWearCycles(maxOf(sessionPeakVoltage, snapshot.voltageV), snapshot.level)
+                val efficiency = if (wear > 0.0) delta / (wear * 100.0) * 100.0 else 0.0
+                store.addSession(
+                    ChargeSession(
+                        startTime = sessionStartTime ?: snapshot.timestamp,
+                        endTime = snapshot.timestamp,
+                        startLevel = start,
+                        endLevel = snapshot.level,
+                        chargedMah = sessionMah,
+                        estimatedCapacityMah = estimate,
+                        endVoltageV = maxOf(sessionPeakVoltage, snapshot.voltageV),
+                        wearCycles = wear,
+                        efficiencyPercent = efficiency
+                    )
+                )
             }
             sessionStartLevel = null
             sessionStartTime = null
             sessionMah = 0.0
+            sessionPeakVoltage = 0.0
         }
-        if (!snapshot.charging && sessionStartLevel != null && snapshot.level < 95) {
+
+        if (!snapshot.charging && sessionStartLevel != null) {
+            // A cable disconnect or a charging interruption ends the current measurement.
             sessionStartLevel = null
             sessionStartTime = null
             sessionMah = 0.0
+            sessionPeakVoltage = 0.0
         }
+
         if (previous == null || snapshot.timestamp - previous.timestamp >= 60_000L) {
             store.addSample(HistorySample(snapshot.timestamp, snapshot.level, snapshot.temperatureC, snapshot.voltageV, snapshot.currentMa))
         }
