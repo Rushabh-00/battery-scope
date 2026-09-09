@@ -4,9 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,9 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,7 +46,6 @@ import com.batteryscope.app.settings.AppSettings
 import com.batteryscope.app.settings.UiPreferences
 import kotlinx.coroutines.delay
 import java.util.Locale
-import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,14 +53,18 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val context = LocalContext.current
-            val preferences = remember(context) { UiPreferences(context) }
-            var theme by remember { mutableStateOf(preferences.theme) }
+            val uiPreferences = remember(context) { UiPreferences(context) }
+            val appSettings = remember(context) { AppSettings(context) }
+            var theme by remember { mutableStateOf(uiPreferences.theme) }
+
             BatteryScopeTheme(theme) {
-                BatteryScopeScreen(
+                BatteryScopeApp(
+                    theme = theme,
                     onThemeChanged = {
                         theme = it
-                        preferences.theme = it
+                        uiPreferences.theme = it
                     },
+                    settings = appSettings,
                 )
             }
         }
@@ -67,19 +72,35 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun BatteryScopeScreen(onThemeChanged: (UiPreferences.Theme) -> Unit) {
+private fun BatteryScopeApp(
+    theme: UiPreferences.Theme,
+    onThemeChanged: (UiPreferences.Theme) -> Unit,
+    settings: AppSettings,
+) {
+    var showSettings by remember { mutableStateOf(false) }
+
+    if (showSettings) {
+        SettingsScreen(
+            theme = theme,
+            onThemeChanged = onThemeChanged,
+            settings = settings,
+            onBack = { showSettings = false },
+        )
+    } else {
+        LiveScreen(settings = settings, onSettings = { showSettings = true })
+    }
+}
+
+@Composable
+private fun LiveScreen(settings: AppSettings, onSettings: () -> Unit) {
     val context = LocalContext.current
     val reader = remember(context) { BatteryReader(context) }
-    val settings = remember(context) { AppSettings(context) }
     var battery by remember { mutableStateOf<BatterySnapshot?>(null) }
-    var temperatureF by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
-    var invertPolarity by remember { mutableStateOf(settings.invertChargingPolarity) }
 
     LaunchedEffect(reader) {
         while (true) {
             battery = reader.read()
-            delay(1500L)
+            delay(1200L)
         }
     }
 
@@ -90,37 +111,28 @@ private fun BatteryScopeScreen(onThemeChanged: (UiPreferences.Theme) -> Unit) {
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(18.dp),
             ) {
-                item {
-                    Header(
-                        charging = battery?.charging == true,
-                        onSettings = { showSettings = !showSettings },
-                    )
-                }
-                if (showSettings) {
-                    item {
-                        SettingsCard(
-                            theme = rememberThemeValue(),
-                            onThemeChanged = onThemeChanged,
-                            invertPolarity = invertPolarity,
-                            onInvertPolarity = {
-                                invertPolarity = it
-                                settings.invertChargingPolarity = it
-                            },
-                        )
-                    }
-                }
+                item { DashboardHeader(charging = battery?.charging == true, onSettings = onSettings) }
                 val current = battery
                 if (current == null) {
-                    item { LoadingState() }
+                    item { LoadingCard() }
                 } else {
-                    item { HeroCard(current, temperatureF) }
-                    items(metricList(current, temperatureF)) { metric -> MetricCard(metric) }
+                    item { BatteryHero(current, settings) }
+                    items(metricPairs(current, settings)) { pair ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            MetricCard(pair.first, Modifier.weight(1f))
+                            if (pair.second != null) MetricCard(pair.second!!, Modifier.weight(1f))
+                            else Spacer(Modifier.weight(1f))
+                        }
+                    }
                     item {
                         Text(
-                            "Health analysis uses completed full-charge sessions.",
+                            "Health and learned capacity use completed full-charge sessions.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -132,23 +144,16 @@ private fun BatteryScopeScreen(onThemeChanged: (UiPreferences.Theme) -> Unit) {
 }
 
 @Composable
-private fun rememberThemeValue(): UiPreferences.Theme {
-    val context = LocalContext.current
-    val preferences = remember(context) { UiPreferences(context) }
-    return preferences.theme
-}
-
-@Composable
-private fun Header(charging: Boolean, onSettings: () -> Unit) {
+private fun DashboardHeader(charging: Boolean, onSettings: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
-            Text("Live", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Column(modifier = Modifier.weight(1f)) {
+            Text("BatteryScope", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                if (charging) "Charging now" else "Running on battery",
+                if (charging) "Live telemetry • charging" else "Live telemetry • on battery",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -158,122 +163,224 @@ private fun Header(charging: Boolean, onSettings: () -> Unit) {
 }
 
 @Composable
-private fun HeroCard(battery: BatterySnapshot, temperatureF: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+private fun BatteryHero(battery: BatterySnapshot, settings: AppSettings) {
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(22.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom,
+            ) {
                 Column {
-                    Text("Charge level", style = MaterialTheme.typography.labelLarge)
-                    Text("${battery.levelPercent}%", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+                    Text("Battery", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        "${battery.levelPercent}%",
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(if (battery.charging) "Charging" else "Discharging", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(battery.powerW?.let { "${format1(it)} W" } ?: "—", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (battery.charging) "Charging" else "Discharging",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(battery.powerW?.let { "${format1(it)} W" } ?: "—", style = MaterialTheme.typography.titleLarge)
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             LinearProgressIndicator(
                 progress = { battery.levelPercent / 100f },
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                SmallValue("Current", battery.currentA?.let { "${format1(it)} A" } ?: "—")
-                SmallValue("Voltage", battery.voltageV?.let { "${format1(it)} V" } ?: "—")
-                SmallValue("Temp", battery.temperatureC?.let { temperatureText(it, temperatureF) } ?: "—")
-            }
-        }
-    }
-}
-
-@Composable
-private fun SmallValue(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun SettingsCard(
-    theme: UiPreferences.Theme,
-    onThemeChanged: (UiPreferences.Theme) -> Unit,
-    invertPolarity: Boolean,
-    onInvertPolarity: (Boolean) -> Unit,
-) {
-    Card {
-        Column(Modifier.padding(18.dp)) {
-            Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(12.dp))
-            Text("Theme", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                UiPreferences.Theme.entries.forEach { option ->
-                    if (theme == option) {
-                        Button(onClick = { onThemeChanged(option) }, modifier = Modifier.weight(1f)) { Text(option.value) }
-                    } else {
-                        OutlinedButton(onClick = { onThemeChanged(option) }, modifier = Modifier.weight(1f)) { Text(option.value) }
-                    }
-                }
-            }
             Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("Invert charging polarity", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                    Text("Changes current sign only. Power keeps the same sign as current.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = invertPolarity, onCheckedChange = onInvertPolarity)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                HeroValue("Current", battery.currentA?.let { formatCurrent(it, settings.currentUnit) } ?: "—")
+                HeroValue("Voltage", battery.voltageV?.let { "${format1(it)} V" } ?: "—")
+                HeroValue("Temp", battery.temperatureC?.let { formatTemperature(it, settings.temperatureUnit) } ?: "—")
             }
         }
+    }
+}
+
+@Composable
+private fun HeroValue(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
 }
 
 private data class Metric(val title: String, val value: String, val subtitle: String)
 
-private fun metricList(battery: BatterySnapshot, temperatureF: Boolean): List<Metric> = listOf(
-    Metric("Power", battery.powerW?.let { "${format1(it)} W" } ?: "Unavailable", "Live output"),
-    Metric("Current", battery.currentA?.let { "${format1(it)} A" } ?: "Unavailable", "Battery current"),
-    Metric("Voltage", battery.voltageV?.let { "${format1(it)} V" } ?: "Unavailable", "Battery voltage"),
-    Metric("Temperature", battery.temperatureC?.let { temperatureText(it, temperatureF) } ?: "Unavailable", "Battery temperature"),
-    Metric("Energy", energyText(battery), "Wh / Ah"),
-    Metric("Charge level", "${battery.levelPercent}%", "Battery level"),
-    Metric("Charging status", if (battery.charging) "Yes" else "No", "Current state"),
-    Metric("Battery capacity", battery.batteryCapacityMah?.let { "${format0(it)} mAh" } ?: "Unavailable", "Reference capacity"),
-    Metric("Remaining battery", battery.remainingMah?.let { "${format0(it)} mAh" } ?: "Unavailable", "Charge counter"),
-    Metric("Estimated capacity", battery.estimatedCapacityMah?.let { "${format0(it)} mAh" } ?: "Waiting for full-charge data", "Learned measurement"),
-)
+private fun metricPairs(battery: BatterySnapshot, settings: AppSettings): List<Pair<Metric, Metric?>> {
+    val all = listOf(
+        Metric("Power", battery.powerW?.let { "${format1(it)} W" } ?: "Unavailable", "Signed with current"),
+        Metric("Current", battery.currentA?.let { formatCurrent(it, settings.currentUnit) } ?: "Unavailable", "Live battery current"),
+        Metric("Voltage", battery.voltageV?.let { "${format1(it)} V" } ?: "Unavailable", "Battery voltage"),
+        Metric("Temperature", battery.temperatureC?.let { formatTemperature(it, settings.temperatureUnit) } ?: "Unavailable", "Battery temperature"),
+        Metric("Energy", energyText(battery, settings.chargeUnit), "Wh / selected charge unit"),
+        Metric("Charge level", "${battery.levelPercent}%", "Battery level"),
+        Metric("Charging", if (battery.charging) "Yes" else "No", "Current state"),
+        Metric("Battery capacity", battery.batteryCapacityMah?.let { "${format0(it)} mAh" } ?: "Unavailable", "Reference capacity"),
+        Metric("Remaining", battery.remainingMah?.let { "${format0(it)} mAh" } ?: "Unavailable", "Charge counter"),
+        Metric("Estimated capacity", battery.estimatedCapacityMah?.let { "${format0(it)} mAh" } ?: "Waiting for full-charge data", "Learned from sessions"),
+    )
+    return all.chunked(2).map { it[0] to it.getOrNull(1) }
+}
 
 @Composable
-private fun MetricCard(metric: Metric) {
-    Card {
+private fun MetricCard(metric: Metric, modifier: Modifier = Modifier) {
+    Card(modifier = modifier, shape = RoundedCornerShape(22.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(metric.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(4.dp))
-            Text(metric.value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(5.dp))
+            Text(metric.value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(3.dp))
             Text(metric.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun LoadingState() {
-    Column(
-        Modifier.fillMaxWidth().padding(vertical = 64.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("Reading battery…", style = MaterialTheme.typography.titleMedium)
+private fun LoadingCard() {
+    Card(shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Reading battery telemetry…", style = MaterialTheme.typography.titleMedium)
+        }
     }
 }
 
-private fun temperatureText(celsius: Double, fahrenheit: Boolean): String =
-    if (fahrenheit) "${((celsius * 9.0 / 5.0) + 32.0).roundToInt()} °F" else "${format1(celsius)} °C"
+@Composable
+private fun SettingsScreen(
+    theme: UiPreferences.Theme,
+    onThemeChanged: (UiPreferences.Theme) -> Unit,
+    settings: AppSettings,
+    onBack: () -> Unit,
+) {
+    Scaffold { padding ->
+        Surface(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(18.dp),
+            ) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onBack) { Text("Back") }
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            Text("Customize BatteryScope", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                item {
+                    SettingsSection("Appearance") {
+                        SettingChoiceRow(
+                            title = "Theme",
+                            options = UiPreferences.Theme.entries.map { it.value },
+                            selected = theme.value,
+                            onSelected = { onThemeChanged(UiPreferences.Theme.fromValue(it)) },
+                        )
+                    }
+                }
+                item {
+                    SettingsSection("Units") {
+                        SettingChoiceRow("Current", AppSettings.CurrentUnit.entries.map { it.value }, settings.currentUnit.value) {
+                            settings.currentUnit = AppSettings.CurrentUnit.fromValue(it)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        SettingChoiceRow("Charge", AppSettings.ChargeUnit.entries.map { it.value }, settings.chargeUnit.value) {
+                            settings.chargeUnit = AppSettings.ChargeUnit.fromValue(it)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        SettingChoiceRow("Temperature", AppSettings.TemperatureUnit.entries.map { it.value }, settings.temperatureUnit.value) {
+                            settings.temperatureUnit = AppSettings.TemperatureUnit.fromValue(it)
+                        }
+                    }
+                }
+                item {
+                    SettingsSection("Telemetry") {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text("Invert charging polarity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "Charging current becomes positive and discharge negative when enabled. Power always follows the same sign.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = settings.invertChargingPolarity,
+                                onCheckedChange = { settings.invertChargingPolarity = it },
+                            )
+                        }
+                    }
+                }
+                item {
+                    Text(
+                        "More battery-health, capacity, session, display, and monitoring settings can be added here later.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
 
-private fun energyText(battery: BatterySnapshot): String {
+@Composable
+private fun SettingsSection(title: String, content: @Composable Column.() -> Unit) {
+    Card(shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(14.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingChoiceRow(
+    title: String,
+    options: List<String>,
+    selected: String,
+    onSelected: (String) -> Unit,
+) {
+    Column {
+        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { option ->
+                FilterChip(selected = selected == option, onClick = { onSelected(option) }, label = { Text(option) })
+            }
+        }
+    }
+}
+
+private fun formatCurrent(value: Double, unit: AppSettings.CurrentUnit): String =
+    if (unit == AppSettings.CurrentUnit.AMPERE) "${format1(value)} A" else "${format0(value * 1000.0)} mA"
+
+private fun formatTemperature(value: Double, unit: AppSettings.TemperatureUnit): String =
+    if (unit == AppSettings.TemperatureUnit.CELSIUS) "${format1(value)} °C" else "${format1((value * 9.0 / 5.0) + 32.0)} °F"
+
+private fun energyText(battery: BatterySnapshot, unit: AppSettings.ChargeUnit): String {
     if (battery.energyWh == null || battery.remainingMah == null) return "Unavailable"
-    return "${format2(battery.energyWh)} Wh / ${format3(battery.remainingMah / 1000.0)} Ah"
+    val charge = if (unit == AppSettings.ChargeUnit.MILLIAMP_HOUR) "${format0(battery.remainingMah)} mAh" else "${format3(battery.remainingMah / 1000.0)} Ah"
+    return "${format2(battery.energyWh)} Wh / $charge"
 }
 
 private fun format0(value: Double): String = String.format(Locale.US, "%.0f", value)
