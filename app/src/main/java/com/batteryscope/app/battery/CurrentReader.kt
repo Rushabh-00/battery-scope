@@ -56,8 +56,9 @@ class CurrentReader(
         val correctionPenalty: Int,
     )
 
-    /** Try common raw unit interpretations and requested correction factors. */
+    /** Try common raw unit interpretations while preserving sensor polarity. */
     private fun normalizeCandidates(raw: Double): List<Candidate> {
+        val sign = if (raw < 0.0) -1.0 else 1.0
         val magnitude = abs(raw)
         if (!magnitude.isFinite() || magnitude == 0.0) return emptyList()
 
@@ -70,8 +71,8 @@ class CurrentReader(
         val multipliers = doubleArrayOf(1.0, 0.5, 2.0, 1000.0)
         val result = ArrayList<Candidate>(multipliers.size)
         for (index in multipliers.indices) {
-            val amps = base * multipliers[index]
-            if (amps.isFinite() && amps in MIN_PLAUSIBLE_AMPS..MAX_PLAUSIBLE_AMPS) {
+            val amps = sign * base * multipliers[index]
+            if (abs(amps).isFinite() && abs(amps) in MIN_PLAUSIBLE_AMPS..MAX_PLAUSIBLE_AMPS) {
                 result.add(Candidate(amps, index))
             }
         }
@@ -79,7 +80,7 @@ class CurrentReader(
     }
 
     private fun score(candidate: Candidate): Double {
-        val amps = candidate.amps
+        val amps = abs(candidate.amps)
         val usefulRangePenalty = when {
             amps in 0.05..5.0 -> 0.0
             amps < 0.05 -> 3.0
