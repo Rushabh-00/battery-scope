@@ -11,9 +11,10 @@ class BatteryReader(context: Context) {
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val capacityReader = BatteryCapacityReader(appContext)
     private val capacityPreferences = CapacityPreferences(appContext)
+    private val settings = com.batteryscope.app.settings.AppSettings(appContext)
     private val currentReader = CurrentReader(
         batteryManager = batteryManager,
-        invertChargingPolarity = com.batteryscope.app.settings.AppSettings(appContext).invertChargingPolarity,
+        invertChargingPolarity = settings.invertChargingPolarity,
     )
 
     fun read(): BatterySnapshot {
@@ -23,8 +24,7 @@ class BatteryReader(context: Context) {
         val levelPercent = if (scale > 0) ((level * 100f) / scale).toInt().coerceIn(0, 100) else 0
         val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
             ?: BatteryManager.BATTERY_STATUS_UNKNOWN
-        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == BatteryManager.BATTERY_STATUS_FULL
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
         val full = status == BatteryManager.BATTERY_STATUS_FULL || levelPercent >= 100
 
         val voltageMv = intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
@@ -36,10 +36,9 @@ class BatteryReader(context: Context) {
         val currentA = currentReader.readAmps()
         val capacity = capacityReader.read(remainingMah, levelPercent, voltageV)
         val designCapacityMah = capacity.designMah ?: capacityPreferences.designCapacityMah
-        val powerW = currentA?.let { absValue(it) }?.let { amps -> voltageV?.times(amps) }
-        val energyWh = if (remainingMah != null && voltageV != null) {
-            remainingMah / 1000.0 * voltageV
-        } else null
+        // Power follows the same signed current polarity. Do not invert power separately.
+        val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
+        val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
 
         return BatterySnapshot(
             levelPercent = levelPercent,
@@ -61,8 +60,6 @@ class BatteryReader(context: Context) {
             ?: Long.MIN_VALUE
         return microAh.takeIf { it > 0 }?.toDouble()?.div(1000.0)
     }
-
-    private fun absValue(value: Double): Double = kotlin.math.abs(value)
 }
 
 class BatteryCapacityReader(private val context: Context) {
@@ -74,10 +71,10 @@ class BatteryCapacityReader(private val context: Context) {
     fun read(remainingMah: Double?, levelPercent: Int, voltageV: Double?): Result {
         val powerSupplyDirs = File("/sys/class/power_supply").listFiles().orEmpty()
         val designMah = powerSupplyDirs.asSequence()
-            .mapNotNull { readCapacityMah(it, "charge_full_design", voltageV) }
+            .mapNotNull { readCapacityMah(it, "charge_full_design", voltageV) ?: readCapacityMah(it, "energy_full_design", voltageV) }
             .firstOrNull()
         val fullMah = powerSupplyDirs.asSequence()
-            .mapNotNull { readCapacityMah(it, "charge_full", voltageV) }
+            .mapNotNull { readCapacityMah(it, "charge_full", voltageV) ?: readCapacityMah(it, "energy_full", voltageV) }
             .firstOrNull()
         val estimatedFromCounter = if (remainingMah != null && levelPercent in 20..99) {
             (remainingMah * 100.0 / levelPercent).takeIf { it in MIN_CAPACITY_MAH..MAX_CAPACITY_MAH }
@@ -90,8 +87,7 @@ class BatteryCapacityReader(private val context: Context) {
         if (!file.isFile || !file.canRead()) return null
         val raw = file.readText().trim().toDoubleOrNull() ?: return null
         if (raw <= 0.0) return null
-        val pathName = name.lowercase()
-        val value = if (pathName.startsWith("energy_")) {
+        val value = if (name.startsWith("energy_")) {
             val voltageMv = voltageV?.times(1000.0)?.takeIf { it > 0.0 } ?: return null
             raw / voltageMv
         } else {
