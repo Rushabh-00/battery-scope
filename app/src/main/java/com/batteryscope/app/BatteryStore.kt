@@ -45,8 +45,8 @@ class BatteryStore(context: Context) {
         showChargeTime = prefs.getBoolean("showChargeTime", true),
         showScreenState = prefs.getBoolean("showScreenState", false),
         invertCharging = prefs.getBoolean("invertCharging", false),
-        powerScalar = prefs.getFloat("powerScalar", 1f),
-        updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 2).coerceIn(1, 10),
+        powerScalar = prefs.getFloat("powerScalar", 1f).coerceIn(0.5f, 2f),
+        updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 2).coerceIn(1, 30),
         notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "V", "%")) ?: setOf("W", "A", "V", "%"),
         lowBatteryAlarm = prefs.getBoolean("lowBatteryAlarm", true),
         fullBatteryAlarm = prefs.getBoolean("fullBatteryAlarm", false),
@@ -69,8 +69,8 @@ class BatteryStore(context: Context) {
             .putBoolean("showChargeTime", value.showChargeTime)
             .putBoolean("showScreenState", value.showScreenState)
             .putBoolean("invertCharging", value.invertCharging)
-            .putFloat("powerScalar", value.powerScalar)
-            .putInt("updateIntervalSeconds", value.updateIntervalSeconds.coerceIn(1, 10))
+            .putFloat("powerScalar", value.powerScalar.coerceIn(0.5f, 2f))
+            .putInt("updateIntervalSeconds", value.updateIntervalSeconds.coerceIn(1, 30))
             .putStringSet("notificationEntries", value.notificationEntries)
             .putBoolean("lowBatteryAlarm", value.lowBatteryAlarm)
             .putBoolean("fullBatteryAlarm", value.fullBatteryAlarm)
