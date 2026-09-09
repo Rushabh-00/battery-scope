@@ -1,21 +1,24 @@
 package com.batteryscope.app
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,12 +53,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import kotlinx.coroutines.delay
 import java.text.DateFormat
-import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
@@ -81,12 +82,16 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun BatteryScopeApp() {
         val store = remember { BatteryStore(this) }
-        var battery by remember { mutableStateOf(readBattery(this)) }
         var settings by remember { mutableStateOf(store.settings()) }
+        var battery by remember { mutableStateOf(readBattery(this)) }
         var tab by remember { mutableIntStateOf(0) }
         var monitoring by remember { mutableStateOf(false) }
         val systemDark = isSystemInDarkTheme()
-        val dark = when (settings.theme) { "DARK" -> true; "LIGHT" -> false; else -> systemDark }
+        val dark = when (settings.theme) {
+            "DARK" -> true
+            "LIGHT" -> false
+            else -> systemDark
+        }
 
         LaunchedEffect(settings.updateIntervalSeconds) {
             while (true) {
@@ -103,37 +108,54 @@ class MainActivity : ComponentActivity() {
             Scaffold(
                 topBar = {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
                             Text("BatteryScope", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text("Realme 9 5G Speed Edition", style = MaterialTheme.typography.bodyMedium)
+                            Text("Battery telemetry & health", style = MaterialTheme.typography.bodySmall)
                         }
                         OutlinedButton(onClick = { tab = 3 }) { Text("⚙ Settings") }
                     }
                 },
                 bottomBar = {
                     NavigationBar {
-                        NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("⚡") }, label = { Text("Charging") })
-                        NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("↓") }, label = { Text("Discharging") })
-                        NavigationBarItem(selected = tab == 2, onClick = { tab = 2 }, icon = { Text("♥") }, label = { Text("Health") })
-                        NavigationBarItem(selected = tab == 4, onClick = { tab = 4 }, icon = { Text("◷") }, label = { Text("History") })
+                        NavItem(tab, 0, "⚡", "Charging") { tab = 0 }
+                        NavItem(tab, 1, "↓", "Discharging") { tab = 1 }
+                        NavItem(tab, 2, "♥", "Health") { tab = 2 }
+                        NavItem(tab, 4, "◷", "History") { tab = 4 }
                     }
                 }
             ) { padding ->
-                Surface(modifier = Modifier.fillMaxSize().padding(padding)) {
+                Surface(Modifier.fillMaxSize().padding(padding)) {
                     when (tab) {
                         0 -> ChargingScreen(battery, health, settings, monitoring, { monitoring = true; startMonitoring() }, { monitoring = false; stopMonitoring() })
                         1 -> DischargingScreen(battery, settings, monitoring, { monitoring = true; startMonitoring() }, { monitoring = false; stopMonitoring() })
                         2 -> HealthScreen(health, sessions, settings)
-                        3 -> SettingsScreen(settings) { next -> settings = next; store.saveSettings(next) }
+                        3 -> SettingsScreen(settings, { settings = it; store.saveSettings(it) }, { openBatteryUsage() }, { openAppSettings() })
                         else -> HistoryScreen(samples, sessions, settings)
                     }
                 }
             }
         }
+    }
+
+    private fun openBatteryUsage() {
+        runCatching { startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)) }
+    }
+
+    private fun openAppSettings() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            })
+        }
+    }
+
+    @Composable
+    private fun NavItem(tab: Int, value: Int, icon: String, label: String, onClick: () -> Unit) {
+        NavigationBarItem(selected = tab == value, onClick = onClick, icon = { Text(icon) }, label = { Text(label) })
     }
 }
 
@@ -148,26 +170,18 @@ private fun ChargingScreen(
 ) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { StatusCard(battery, settings, "Battery level") }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (settings.showPower) MetricCard("Power", formatPower(battery.powerW, settings.powerScalar), Modifier.weight(1f))
-                if (settings.showCurrent) MetricCard("Current", formatCurrent(battery.currentMa, settings.currentUnit), Modifier.weight(1f))
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (settings.showVoltage) MetricCard("Voltage", "${format3(battery.voltageV)} V", Modifier.weight(1f))
-                if (settings.showTemperature) MetricCard("Temperature", formatTemp(battery.temperatureC, settings.temperatureF), Modifier.weight(1f))
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (settings.showRemainingCharge) MetricCard("Remaining charge", formatCharge(battery.counterMicroAh, settings.chargeUnit), Modifier.weight(1f))
-                if (settings.showEnergy) MetricCard("Energy remaining", formatEnergy(battery.energyCounterNWh), Modifier.weight(1f))
-            }
-        }
-        item { CapacityCard(battery, health, settings) }
-        item { ChargeTimeCard(battery, settings) }
+        item { TelemetryGrid(battery, settings) }
+        item { InfoCard("Battery capacity") {
+            Text(health.capacityMah?.let { formatCapacity(it, settings.chargeUnit) } ?: "Collecting usable charge data", style = MaterialTheme.typography.headlineSmall)
+            Text("Estimated full-charge capacity from measured charging current + percentage gain.")
+            Text("Design reference: ${formatCapacity(DESIGN_CAPACITY_MAH, settings.chargeUnit)}")
+            Text("Remaining charge: ${formatCharge(battery.counterMicroAh, settings.chargeUnit)}")
+            Text("Health: ${health.healthPercent?.let { "${format1(it)}%" } ?: "Waiting for usable sessions"}")
+        } }
+        item { InfoCard("Charge time") {
+            Text(if (settings.showChargeTime && battery.charging && battery.chargeTimeRemainingMs != null) formatDuration(battery.chargeTimeRemainingMs) else "Unavailable from Android", style = MaterialTheme.typography.headlineSmall)
+            Text("Operating-system estimate while charging.")
+        } }
         item { MonitoringCard(monitoring, onStart, onStop) }
     }
 }
@@ -182,68 +196,61 @@ private fun DischargingScreen(
 ) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { StatusCard(battery, settings, "Charge level") }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (settings.showPower) MetricCard("Power", formatPower(battery.powerW, settings.powerScalar), Modifier.weight(1f))
-                if (settings.showCurrent) MetricCard("Current", formatCurrent(battery.currentMa, settings.currentUnit), Modifier.weight(1f))
-            }
-        }
-        item {
-            InfoCard("Discharge summary") {
-                Text("Average draw: ${formatCurrent(battery.averageCurrentMa, settings.currentUnit)}")
-                Text("Remaining charge: ${formatCharge(battery.counterMicroAh, settings.chargeUnit)}")
-                Text("Energy remaining: ${formatEnergy(battery.energyCounterNWh)}")
-                Text("Negative current and power mean energy is leaving the battery.", style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        item { TelemetryGrid(battery, settings) }
+        item { InfoCard("Discharge summary") {
+            Text("Average draw: ${formatCurrent(battery.averageCurrentMa, settings.currentUnit)}")
+            Text("Power now: ${formatPower(battery.powerW, settings.powerScalar)}")
+            Text("Remaining charge: ${formatCharge(battery.counterMicroAh, settings.chargeUnit)}")
+            Text("Energy remaining: ${formatEnergy(battery.energyCounterNWh)}")
+            Text("Negative current/power means energy is leaving the battery.", style = MaterialTheme.typography.bodySmall)
+        } }
         item { MonitoringCard(monitoring, onStart, onStop) }
     }
 }
 
 @Composable
 private fun StatusCard(battery: BatterySnapshot, settings: UiSettings, title: String) {
-    Card(Modifier.fillMaxWidth(), RoundedCornerShape(30.dp)) {
-        Column(Modifier.padding(26.dp)) {
+    Card(Modifier.fillMaxWidth(), RoundedCornerShape(28.dp)) {
+        Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
             Text("${battery.level}%", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
             Text(battery.status, style = MaterialTheme.typography.titleLarge)
             if (settings.showTemperature) Text("Temperature: ${formatTemp(battery.temperatureC, settings.temperatureF)} • ${classifyTemperature(battery.temperatureC)}")
-            Text("Technology: ${battery.technology}", style = MaterialTheme.typography.bodyMedium)
+            Text("Technology: ${battery.technology}")
             battery.cycleCount?.let { Text("Cycle count: $it", style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
 
 @Composable
-private fun CapacityCard(battery: BatterySnapshot, health: HealthEstimate, settings: UiSettings) {
-    Card(Modifier.fillMaxWidth(), RoundedCornerShape(24.dp)) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Battery capacity estimate", style = MaterialTheme.typography.titleMedium)
-            Text(health.capacityMah?.let { formatCapacity(it, settings.chargeUnit) } ?: "Collecting usable charge data", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Text("Estimated full-charge capacity from measured charging current and percentage gained.")
-            Text("Design reference: ${formatCapacity(DESIGN_CAPACITY_MAH, settings.chargeUnit)}")
-            Text("Remaining charge: ${formatCharge(battery.counterMicroAh, settings.chargeUnit)}", style = MaterialTheme.typography.bodySmall)
-            health.healthPercent?.let { Text("Battery health: ${format1(it)}%", fontWeight = FontWeight.SemiBold) }
-            Text("Source: ${health.source}", style = MaterialTheme.typography.bodySmall)
+private fun TelemetryGrid(battery: BatterySnapshot, settings: UiSettings) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        MetricRow {
+            if (settings.showPower) MetricCard("Power", formatPower(battery.powerW, settings.powerScalar), Modifier.weight(1f))
+            if (settings.showCurrent) MetricCard("Current", formatCurrent(battery.currentMa, settings.currentUnit), Modifier.weight(1f))
+        }
+        MetricRow {
+            if (settings.showVoltage) MetricCard("Voltage", "${format3(battery.voltageV)} V", Modifier.weight(1f))
+            if (settings.showTemperature) MetricCard("Temperature", formatTemp(battery.temperatureC, settings.temperatureF), Modifier.weight(1f))
+        }
+        MetricRow {
+            if (settings.showRemainingCharge) MetricCard("Used charge", formatCharge(battery.counterMicroAh, settings.chargeUnit), Modifier.weight(1f))
+            if (settings.showEnergy) MetricCard("Energy", formatEnergy(battery.energyCounterNWh), Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun ChargeTimeCard(battery: BatterySnapshot, settings: UiSettings) {
-    if (!settings.showChargeTime) return
-    InfoCard("Charge time estimate") {
-        Text(if (battery.charging && battery.chargeTimeRemainingMs != null) formatDuration(battery.chargeTimeRemainingMs) else "Unavailable from Android", style = MaterialTheme.typography.headlineSmall)
-        Text("Operating-system estimate while charging.", style = MaterialTheme.typography.bodySmall)
-    }
+private fun MetricRow(content: @Composable RowScope.() -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), content = content)
 }
 
 @Composable
 private fun MonitoringCard(monitoring: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
     InfoCard("Background monitoring") {
-        Text(if (monitoring) "Running • samples are being collected in the background." else "Off • start monitoring to keep collecting while the app is closed.")
-        Spacer(Modifier.height(8.dp))
-        if (monitoring) OutlinedButton(onClick = onStop) { Text("Stop monitoring") } else Button(onClick = onStart) { Text("Start monitoring") }
+        Text(if (monitoring) "Running • collecting samples in the background." else "Off • start monitoring to collect sessions while the app is closed.")
+        if (monitoring) OutlinedButton(onClick = onStop) { Text("Stop monitoring") }
+        else Button(onClick = onStart) { Text("Start monitoring") }
     }
 }
 
@@ -253,56 +260,46 @@ private fun HealthScreen(health: HealthEstimate, sessions: List<ChargeSession>, 
     val recent = valid.takeLast(5)
     val avgWear = recent.map { it.wearCycles }.average().takeIf { !it.isNaN() }
     val avgEfficiency = recent.map { it.efficiencyPercent }.average().takeIf { !it.isNaN() }
-    val slope = regressionSlope(recent.mapIndexed { i, s -> i.toDouble() to s.estimatedCapacityMah })
+    val slope = regressionSlope(recent.mapIndexed { index, s -> index.toDouble() to s.estimatedCapacityMah })
+
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Card(Modifier.fillMaxWidth(), RoundedCornerShape(26.dp)) {
-                Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Battery health", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(health.healthPercent?.let { "${format1(it)}%" } ?: "No usable estimate yet", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-                    HealthBar(health.healthPercent)
-                    Text("Estimated capacity: ${health.capacityMah?.let { formatCapacity(it, settings.chargeUnit) } ?: "—"}")
-                    Text("Design capacity: ${formatCapacity(DESIGN_CAPACITY_MAH, settings.chargeUnit)}")
-                    Text("Based on ${health.completedSessions} recent usable session(s) • confidence ${health.confidencePercent}%")
-                }
+            InfoCard("Battery health") {
+                Text(health.healthPercent?.let { "${format1(it)}%" } ?: "No usable estimate yet", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+                HealthBar(health.healthPercent)
+                Text("Estimated capacity: ${health.capacityMah?.let { formatCapacity(it, settings.chargeUnit) } ?: "—"}")
+                Text("Design capacity: ${formatCapacity(DESIGN_CAPACITY_MAH, settings.chargeUnit)}")
+                Text("${health.completedSessions} usable session(s) • confidence ${health.confidencePercent}%")
             }
         }
-        item {
-            InfoCard("Battery capacity over time") {
-                Text("Moving average of the latest five usable charge sessions.", style = MaterialTheme.typography.bodySmall)
-                SimpleLineChart(recent.map { it.estimatedCapacityMah }, DESIGN_CAPACITY_MAH * 0.5, DESIGN_CAPACITY_MAH * 1.05, "mAh")
-                Text("Trend: ${slope?.let { "%.1f mAh/session".format(it) } ?: "Not enough sessions"}", style = MaterialTheme.typography.bodySmall)
+        item { InfoCard("Battery capacity over time") {
+            Text("Moving average of the latest five usable charging sessions.", style = MaterialTheme.typography.bodySmall)
+            SimpleLineChart(recent.map { it.estimatedCapacityMah }, DESIGN_CAPACITY_MAH * 0.5, DESIGN_CAPACITY_MAH * 1.05, "mAh")
+            Text("Trend: ${slope?.let { "%.1f mAh/session".format(it) } ?: "Not enough sessions"}", style = MaterialTheme.typography.bodySmall)
+        } }
+        item { InfoCard("Selected session") {
+            val last = recent.lastOrNull()
+            if (last == null) Text("No usable session yet. Keep monitoring while charging.") else {
+                Text(formatDate(last.endTime))
+                Text("Battery level: ${last.startLevel}% → ${last.endLevel}%")
+                Text("Charged: ${formatChargeValue(last.chargedMah, settings.chargeUnit)}")
+                Text("Estimated capacity: ${formatCapacity(last.estimatedCapacityMah, settings.chargeUnit)}")
+                Text("Health: ${format1(last.estimatedCapacityMah / DESIGN_CAPACITY_MAH * 100.0)}%")
+                Text("Peak voltage: ${format3(last.endVoltageV)} V")
             }
-        }
-        item {
-            InfoCard("Selected session") {
-                val last = recent.lastOrNull()
-                if (last == null) Text("No usable charge session yet. Keep monitoring while charging.") else {
-                    Text(formatDate(last.endTime))
-                    Text("Battery level: ${last.startLevel}% → ${last.endLevel}%")
-                    Text("Charged: ${formatChargeValue(last.chargedMah, settings.chargeUnit)}")
-                    Text("Estimated capacity: ${formatCapacity(last.estimatedCapacityMah, settings.chargeUnit)}")
-                    Text("Health: ${format1(last.estimatedCapacityMah / DESIGN_CAPACITY_MAH * 100.0)}%")
-                    Text("Peak voltage: ${format3(last.endVoltageV)} V")
-                }
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard("Recent wear", avgWear?.let { "${format2(it)} cycles" } ?: "—", Modifier.weight(1f))
-                MetricCard("Efficiency", avgEfficiency?.let { "${format0(it)}%" } ?: "—", Modifier.weight(1f))
-            }
-        }
-        item {
-            InfoCard("Battery wear") {
-                Text("Voltage-based modeled wear. This is an estimate, not a factory battery-health reading.", style = MaterialTheme.typography.bodySmall)
-                SimpleLineChart(recent.map { it.wearCycles }, 0.0, maxOf(2.0, recent.maxOfOrNull { it.wearCycles } ?: 2.0), "cycles")
-            }
-        }
+        } }
+        item { MetricRow {
+            MetricCard("Recent wear", avgWear?.let { "${format2(it)} cycles" } ?: "—", Modifier.weight(1f))
+            MetricCard("Efficiency", avgEfficiency?.let { "${format0(it)}%" } ?: "—", Modifier.weight(1f))
+        } }
+        item { InfoCard("Battery wear") {
+            Text("Voltage-based modeled wear. Estimate only; not a factory battery-health reading.", style = MaterialTheme.typography.bodySmall)
+            SimpleLineChart(recent.map { it.wearCycles }, 0.0, maxOf(2.0, recent.maxOfOrNull { it.wearCycles } ?: 2.0), "cycles")
+        } }
         item { WearPeriods(sessions) }
         item { InfoCard("How health is calculated") {
-            Text("BatteryScope integrates measured charging current over time, calculates charge added, divides by percentage gained, extrapolates to full capacity, then averages recent usable sessions.")
-            Text("A usable session covers at least 60 percentage points. The design reference is configurable model data.", style = MaterialTheme.typography.bodySmall)
+            Text("Measured charging current is integrated over time to estimate charge added. Charge added is divided by percentage gained and extrapolated to 100% capacity, then recent usable sessions are averaged.")
+            Text("A usable session covers at least 60 percentage points. Health = estimated capacity ÷ design reference × 100.", style = MaterialTheme.typography.bodySmall)
         } }
     }
 }
@@ -311,13 +308,13 @@ private fun HealthScreen(health: HealthEstimate, sessions: List<ChargeSession>, 
 private fun WearPeriods(sessions: List<ChargeSession>) {
     val now = System.currentTimeMillis()
     fun total(days: Long) = sessions.filter { it.endTime >= now - days * 86_400_000L }.sumOf { it.wearCycles }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Battery wear by period", style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        MetricRow {
             MetricCard("Past 7 days", "${format2(total(7))} cycles", Modifier.weight(1f))
             MetricCard("Past 30 days", "${format2(total(30))} cycles", Modifier.weight(1f))
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        MetricRow {
             MetricCard("Past year", "${format2(total(365))} cycles", Modifier.weight(1f))
             MetricCard("All time", "${format2(sessions.sumOf { it.wearCycles })} cycles", Modifier.weight(1f))
         }
@@ -334,20 +331,13 @@ private fun HistoryScreen(samples: List<HistorySample>, sessions: List<ChargeSes
         items(sessions.asReversed()) { SessionCard(it, settings) }
         item { Text("Telemetry (${samples.size} samples)", style = MaterialTheme.typography.titleMedium) }
         items(samples.asReversed().take(150)) { sample ->
-            Card(Modifier.fillMaxWidth(), RoundedCornerShape(16.dp)) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column {
-                        Text("${sample.level}% • ${formatTemp(sample.temperatureC, settings.temperatureF)}")
-                        Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(sample.timestamp)), style = MaterialTheme.typography.bodySmall)
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("${format3(sample.voltageV)} V")
-                        Text(formatCurrent(sample.currentMa, settings.currentUnit), style = MaterialTheme.typography.bodySmall)
-                    }
-                }
+            InfoCard("${sample.level}% • ${formatTemp(sample.temperatureC, settings.temperatureF)}") {
+                Text("${format3(sample.voltageV)} V")
+                Text(formatCurrent(sample.currentMa, settings.currentUnit))
+                Text(DateFormat.getDateTimeInstance().format(Date(sample.timestamp)), style = MaterialTheme.typography.bodySmall)
             }
         }
-        if (samples.isEmpty() && sessions.isEmpty()) item { Text("No history yet. Start background monitoring.") }
+        if (sessions.isEmpty() && samples.isEmpty()) item { Text("No history yet. Start background monitoring.") }
     }
 }
 
@@ -363,18 +353,16 @@ private fun SessionCard(session: ChargeSession, settings: UiSettings) {
 }
 
 @Composable
-private fun SettingsScreen(settings: UiSettings, onChange: (UiSettings) -> Unit) {
+private fun SettingsScreen(settings: UiSettings, onChange: (UiSettings) -> Unit, onOpenBatteryUsage: () -> Unit, onOpenAppSettings: () -> Unit) {
     val scalars = listOf(0.001f, 0.5f, 1f, 2f, 1000f)
     val scalarLabels = listOf("0.001×", "0.5×", "1×", "2×", "1000×")
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
-        item { Text("BatteryScope preferences. Current defaults to A, charge to Ah and energy to Wh.", style = MaterialTheme.typography.bodySmall) }
-
         item { InfoCard("Appearance") {
-            Text("Theme")
+            Text("Choose app theme")
             SegmentedRow(listOf("AUTO", "LIGHT", "DARK"), settings.theme) { onChange(settings.copy(theme = it)) }
+            Text("Auto follows your Android system theme.", style = MaterialTheme.typography.bodySmall)
         } }
-
         item { InfoCard("Units") {
             Text("Current")
             SegmentedRow(listOf("A", "mA"), settings.currentUnit) { onChange(settings.copy(currentUnit = it)) }
@@ -383,22 +371,19 @@ private fun SettingsScreen(settings: UiSettings, onChange: (UiSettings) -> Unit)
             Text("Energy")
             SegmentedRow(listOf("Wh"), "Wh") { }
         } }
-
         item { InfoCard("Workarounds") {
             Text("Power scalar: ${scalarLabels[scalars.indexOfFirst { abs(it - settings.powerScalar) < 0.0001f }.coerceAtLeast(0)]}")
-            SegmentedRow(scalarLabels, scalarLabels[scalars.indexOfFirst { abs(it - settings.powerScalar) < 0.0001f }.coerceAtLeast(0)]) { onChange(settings.copy(powerScalar = scalars[scalarLabels.indexOf(it)])) }
-            Spacer(Modifier.height(4.dp))
+            SegmentedRow(scalarLabels, scalarLabels[scalars.indexOfFirst { abs(it - settings.powerScalar) < 0.0001f }.coerceAtLeast(0)]) {
+                onChange(settings.copy(powerScalar = scalars[scalarLabels.indexOf(it)]))
+            }
             ToggleButtonRow("Invert charging indicator", settings.invertCharging) { onChange(settings.copy(invertCharging = it)) }
             ToggleButtonRow("Fahrenheit", settings.temperatureF) { onChange(settings.copy(temperatureF = it)) }
-            Text("Use invert only when the phone reports charging direction backwards.", style = MaterialTheme.typography.bodySmall)
         } }
-
         item { InfoCard("Update interval") {
             Text("${settings.updateIntervalSeconds}s")
             Slider(value = settings.updateIntervalSeconds.toFloat(), onValueChange = { onChange(settings.copy(updateIntervalSeconds = it.toInt().coerceIn(1, 10))) }, valueRange = 1f..10f, steps = 8)
-            Text("1–10 seconds. Faster sampling uses more battery.", style = MaterialTheme.typography.bodySmall)
+            Text("Faster sampling uses more battery.", style = MaterialTheme.typography.bodySmall)
         } }
-
         item { InfoCard("Notification") {
             Text("Notification entries")
             listOf("W", "A", "Ah", "°C", "V", "Wh", "%").forEach { key ->
@@ -410,18 +395,15 @@ private fun SettingsScreen(settings: UiSettings, onChange: (UiSettings) -> Unit)
             ToggleButtonRow("Charge time estimate", settings.showChargeTime) { onChange(settings.copy(showChargeTime = it)) }
             ToggleButtonRow("Screen state", settings.showScreenState) { onChange(settings.copy(showScreenState = it)) }
         } }
-
         item { InfoCard("Battery alarms") {
-            Text("Low, full and temperature alerts")
             ToggleButtonRow("Low battery alert", settings.lowBatteryAlarm) { onChange(settings.copy(lowBatteryAlarm = it)) }
             ToggleButtonRow("Full charge alert", settings.fullBatteryAlarm) { onChange(settings.copy(fullBatteryAlarm = it)) }
             ToggleButtonRow("High temperature alert", settings.temperatureAlarm) { onChange(settings.copy(temperatureAlarm = it)) }
         } }
-
         item { InfoCard("System") {
-            OutlinedButton(onClick = { try { startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)) } catch (_: Exception) {} }) { Text("Open system battery usage") }
-            OutlinedButton(onClick = { try { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Intent.parseUri("package:$packageName", 0))) } catch (_: Exception) { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = android.net.Uri.parse("package:$packageName") }) } }) { Text("Background restrictions") }
-            Text("Allow BatteryScope to keep background monitoring active on phones that restrict apps.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onOpenBatteryUsage) { Text("Open system battery usage") }
+            OutlinedButton(onClick = onOpenAppSettings) { Text("Open BatteryScope app settings") }
+            Text("Use these shortcuts when the phone restricts background monitoring.", style = MaterialTheme.typography.bodySmall)
         } }
     }
 }
@@ -438,8 +420,8 @@ private fun SegmentedRow(options: List<String>, selected: String, onSelect: (Str
 
 @Composable
 private fun ToggleButtonRow(title: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(title, modifier = Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f))
         OutlinedButton(onClick = { onToggle(!checked) }) { Text(if (checked) "ON" else "OFF") }
     }
 }
@@ -447,7 +429,7 @@ private fun ToggleButtonRow(title: String, checked: Boolean, onToggle: (Boolean)
 @Composable
 private fun InfoCard(title: String, content: @Composable () -> Unit) {
     Card(Modifier.fillMaxWidth(), RoundedCornerShape(22.dp)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             content()
         }
@@ -456,44 +438,11 @@ private fun InfoCard(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun MetricCard(title: String, value: String, modifier: Modifier = Modifier) {
-    Card(modifier, RoundedCornerShape(20.dp)) {
-        Column(Modifier.padding(16.dp)) {
+    Card(modifier, RoundedCornerShape(18.dp)) {
+        Column(Modifier.padding(14.dp)) {
             Text(title, style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(4.dp))
             Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-@Composable
-private fun SimpleLineChart(values: List<Double>, minValue: Double, maxValue: Double, label: String) {
-    val data = values.takeLast(60)
-    Column {
-        Box(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            if (data.size < 2) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Not enough data yet") }
-            } else {
-                Canvas(Modifier.fillMaxSize().padding(12.dp)) {
-                    val range = (maxValue - minValue).coerceAtLeast(1.0)
-                    for (i in 1..4) {
-                        val y = size.height * i / 5f
-                        drawLine(MaterialTheme.colorScheme.outlineVariant, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
-                    }
-                    val path = Path()
-                    data.forEachIndexed { index, value ->
-                        val x = index.toFloat() / data.lastIndex.coerceAtLeast(1) * size.width
-                        val n = ((value - minValue) / range).coerceIn(0.0, 1.0)
-                        val y = size.height - n.toFloat() * size.height
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                    }
-                    drawPath(path, MaterialTheme.colorScheme.primary, style = Stroke(width = 5f, cap = StrokeCap.Round))
-                }
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(format0(minValue), style = MaterialTheme.typography.bodySmall)
-            Text(label, style = MaterialTheme.typography.bodySmall)
-            Text(format0(maxValue), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -506,13 +455,48 @@ private fun HealthBar(percent: Double?) {
     }
 }
 
+@Composable
+private fun SimpleLineChart(values: List<Double>, minValue: Double, maxValue: Double, label: String) {
+    val data = values.takeLast(60)
+    val primary = MaterialTheme.colorScheme.primary
+    val grid = MaterialTheme.colorScheme.outlineVariant
+    Column {
+        Box(Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+            if (data.size < 2) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Not enough data yet") }
+            } else {
+                Canvas(Modifier.fillMaxSize().padding(12.dp)) {
+                    val range = (maxValue - minValue).coerceAtLeast(1.0)
+                    for (i in 1..4) {
+                        val y = size.height * i / 5f
+                        drawLine(grid, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
+                    }
+                    val path = Path()
+                    data.forEachIndexed { index, value ->
+                        val x = index.toFloat() / data.lastIndex.coerceAtLeast(1) * size.width
+                        val normalized = ((value - minValue) / range).coerceIn(0.0, 1.0).toFloat()
+                        val y = size.height - normalized * size.height
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path, primary, style = Stroke(width = 4f, cap = StrokeCap.Round))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(format0(minValue), style = MaterialTheme.typography.bodySmall)
+            Text(label, style = MaterialTheme.typography.bodySmall)
+            Text(format0(maxValue), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
 private fun regressionSlope(points: List<Pair<Double, Double>>): Double? {
     if (points.size < 2) return null
-    val xm = points.map { it.first }.average()
-    val ym = points.map { it.second }.average()
-    val num = points.sumOf { (it.first - xm) * (it.second - ym) }
-    val den = points.sumOf { (it.first - xm) * (it.first - xm) }
-    return if (den == 0.0) null else num / den
+    val xMean = points.map { it.first }.average()
+    val yMean = points.map { it.second }.average()
+    val numerator = points.sumOf { (it.first - xMean) * (it.second - yMean) }
+    val denominator = points.sumOf { (it.first - xMean) * (it.first - xMean) }
+    return numerator.takeIf { denominator != 0.0 }?.div(denominator)
 }
 
 private fun formatCurrent(ma: Double?, unit: String): String {
@@ -535,18 +519,23 @@ private fun formatPower(w: Double?, scalar: Float): String {
     }
 }
 
-private fun formatTemp(c: Double, f: Boolean): String = if (f) "${"%.1f".format(c * 9.0 / 5.0 + 32.0)} °F" else "${"%.1f".format(c)} °C"
-private fun formatCharge(microAh: Long?, unit: String): String {
-    if (microAh == null) return "Unavailable"
-    val mah = microAh / 1000.0
-    return if (unit == "Ah") "${"%.3f".format(mah / 1000.0)} Ah" else "${"%.0f".format(mah)} mAh"
+private fun formatTemp(c: Double, fahrenheit: Boolean): String = if (fahrenheit) "${"%.1f".format(c * 9.0 / 5.0 + 32.0)} °F" else "${"%.1f".format(c)} °C"
+private fun formatCharge(counterMicroAh: Long?, unit: String): String {
+    if (counterMicroAh == null) return "Unavailable"
+    return formatChargeValue(counterMicroAh / 1000.0, unit)
 }
-private fun formatCapacity(mah: Double, unit: String): String = if (unit == "Ah") "${"%.2f".format(mah / 1000.0)} Ah" else "${"%.0f".format(mah)} mAh"
 private fun formatChargeValue(mah: Double, unit: String): String = if (unit == "Ah") "${"%.3f".format(mah / 1000.0)} Ah" else "${"%.0f".format(mah)} mAh"
-private fun formatEnergy(nWh: Long?): String = if (nWh == null) "Unavailable" else "${"%.2f".format(nWh / 1_000_000_000.0)} Wh"
-private fun formatDuration(ms: Long): String { val minutes = (ms / 60_000L).coerceAtLeast(0L); return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m remaining" else "$minutes min remaining" }
+private fun formatCapacity(mah: Double, unit: String): String = if (unit == "Ah") "${"%.2f".format(mah / 1000.0)} Ah" else "${"%.0f".format(mah)} mAh"
+private fun formatEnergy(nWh: Long?): String {
+    if (nWh == null) return "Unavailable"
+    return "${"%.2f".format(nWh / 1_000_000_000.0)} Wh"
+}
+private fun formatDuration(ms: Long): String {
+    val minutes = (ms / 60_000L).coerceAtLeast(0L)
+    return if (minutes >= 60) "${minutes / 60}h ${minutes % 60}m" else "$minutes min"
+}
 private fun format1(v: Double): String = "%.1f".format(v)
 private fun format2(v: Double): String = "%.2f".format(v)
 private fun format3(v: Double): String = "%.3f".format(v)
 private fun format0(v: Double): String = "%.0f".format(v)
-private fun formatDate(ts: Long): String = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ts))
+private fun formatDate(ts: Long): String = DateFormat.getDateTimeInstance().format(Date(ts))
