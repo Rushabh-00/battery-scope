@@ -18,12 +18,7 @@ data class UiSettings(
     val notificationEntries: Set<String> = setOf("W", "A", "mAh", "°C", "V", "Wh", "%")
 )
 
-data class ActiveChargeSession(
-    val startTime: Long,
-    val startLevel: Int,
-    val chargedMah: Double,
-    val peakVoltageV: Double
-)
+data class ActiveChargeSession(val startTime: Long, val startLevel: Int, val chargedMah: Double, val peakVoltageV: Double)
 
 class BatteryStore(context: Context) {
     private val prefs = context.getSharedPreferences("battery_scope", Context.MODE_PRIVATE)
@@ -52,8 +47,8 @@ class BatteryStore(context: Context) {
             .putStringSet("notificationEntries", value.notificationEntries).apply()
     }
 
-    fun autoCurrentScale(): Double = prefs.getFloat("autoCurrentScale", 1f).toDouble().coerceIn(0.25, 1000.0)
-    @Synchronized fun setAutoCurrentScale(value: Double) = prefs.edit().putFloat("autoCurrentScale", value.coerceIn(0.25, 1000.0).toFloat()).apply()
+    fun autoCurrentScale(): Double = prefs.getFloat("autoCurrentScale", 1f).toDouble().coerceIn(0.25, 100.0)
+    @Synchronized fun setAutoCurrentScale(value: Double) = prefs.edit().putFloat("autoCurrentScale", value.coerceIn(0.25, 100.0).toFloat()).apply()
     @Synchronized fun resetAutoCurrentScale() = prefs.edit().remove("autoCurrentScale").apply()
 
     fun calibrationCompleted(): Boolean = prefs.getBoolean("calibrationCompleted", false)
@@ -61,6 +56,11 @@ class BatteryStore(context: Context) {
     @Synchronized fun clearCalibration() = prefs.edit().putBoolean("calibrationCompleted", false).remove("autoCurrentScale").apply()
 
     fun referenceCapacityMah(): Double? = prefs.getString("referenceCapacityMah", null)?.toDoubleOrNull()?.takeIf { it in 1000.0..20000.0 }
+    fun startupCapacityMah(): Double? = prefs.getString("startupCapacityMah", null)?.toDoubleOrNull()?.takeIf { it in 1000.0..20000.0 }
+    @Synchronized fun saveStartupCapacityMah(value: Double) {
+        if (!value.isFinite() || value !in 1000.0..20000.0) return
+        prefs.edit().putString("startupCapacityMah", value.toString()).apply()
+    }
     @Synchronized fun learnReferenceCapacity(capacityMah: Double) {
         if (!capacityMah.isFinite() || capacityMah !in 1000.0..20000.0) return
         val previous = referenceCapacityMah()
