@@ -6,8 +6,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 
@@ -70,7 +71,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             while (true) {
                 battery = readBattery(this@MainActivity)
-                kotlinx.coroutines.delay(2_000)
+                delay(2_000)
             }
         }
 
@@ -96,7 +97,13 @@ class MainActivity : ComponentActivity() {
             ) { padding ->
                 Surface(modifier = Modifier.fillMaxSize().padding(padding)) {
                     when (tab) {
-                        0 -> Dashboard(battery, monitoring, { monitoring = true; startMonitoring() }, { monitoring = false; stopMonitoring() })
+                        0 -> Dashboard(
+                            battery = battery,
+                            health = health,
+                            monitoring = monitoring,
+                            onStart = { monitoring = true; startMonitoring() },
+                            onStop = { monitoring = false; stopMonitoring() }
+                        )
                         1 -> HealthScreen(health, sessions)
                         else -> HistoryScreen(samples)
                     }
@@ -107,7 +114,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Dashboard(battery: BatterySnapshot, monitoring: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
+private fun Dashboard(
+    battery: BatterySnapshot,
+    health: HealthEstimate,
+    monitoring: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
     LazyColumn(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Card(shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
@@ -120,38 +133,76 @@ private fun Dashboard(battery: BatterySnapshot, monitoring: Boolean, onStart: ()
                 }
             }
         }
-        item { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetricCard("Voltage", "${"%.3f".format(battery.voltageV)} V", Modifier.weight(1f))
-            MetricCard("Current", battery.currentMa?.let { "${"%.0f".format(it)} mA" } ?: "Unavailable", Modifier.weight(1f))
-        } }
-        item { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetricCard("Power", battery.powerW?.let { "${"%.2f".format(it)} W" } ?: "Unavailable", Modifier.weight(1f))
-            MetricCard("Technology", battery.technology, Modifier.weight(1f))
-        } }
-        item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text("Battery capacity", style = MaterialTheme.typography.labelLarge)
-                Text("5,000 mAh", style = MaterialTheme.typography.headlineSmall)
-                Text("Configured design capacity used as the reference for health. It is not a factory-measured value from Android.")
-                battery.counterMicroAh?.let {
-                    Text("Android charge counter: ${"%.0f".format(it / 1000.0)} mAh", style = MaterialTheme.typography.bodySmall)
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard("Voltage", "${"%.3f".format(battery.voltageV)} V", Modifier.weight(1f))
+                MetricCard("Current", battery.currentMa?.let { formatCurrent(it) } ?: "Unavailable", Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard("Power", battery.powerW?.let { "${"%.2f".format(it)} W" } ?: "Unavailable", Modifier.weight(1f))
+                MetricCard("Technology", battery.technology, Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard(
+                    "Remaining charge",
+                    battery.counterMicroAh?.let { "${it / 1000L} mAh" } ?: "Unavailable",
+                    Modifier.weight(1f)
+                )
+                MetricCard(
+                    "Energy remaining",
+                    battery.energyCounterNWh?.let { "${"%.1f".format(it / 1_000_000_000.0)} Wh" } ?: "Unavailable",
+                    Modifier.weight(1f)
+                )
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("Battery capacity estimate", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        health.capacityMah?.let { "${"%.0f".format(it)} mAh" } ?: "Collecting usable charge data",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    Text("Estimated full-charge capacity from measured charging current and percentage gain.")
+                    Spacer(Modifier.height(6.dp))
+                    Text("Design reference: ${"%.0f".format(DESIGN_CAPACITY_MAH)} mAh", style = MaterialTheme.typography.bodyMedium)
+                    battery.counterMicroAh?.let {
+                        Text("Remaining charge counter: ${"%.0f".format(it / 1000.0)} mAh", style = MaterialTheme.typography.bodySmall)
+                    }
+                    health.healthPercent?.let {
+                        Text("Estimated health: ${"%.1f".format(it)}%", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
-        } }
-        item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text("Background monitoring", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text(if (monitoring) "Running • samples are being collected every 30 seconds." else "Off • start it to keep collecting while the app is closed.")
-                Spacer(Modifier.height(10.dp))
-                if (monitoring) OutlinedButton(onClick = onStop) { Text("Stop monitoring") }
-                else Button(onClick = onStart) { Text("Start monitoring") }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("Background monitoring", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(if (monitoring) "Running • samples are being collected every 15 seconds." else "Off • start it to keep collecting while the app is closed.")
+                    Spacer(Modifier.height(10.dp))
+                    if (monitoring) OutlinedButton(onClick = onStop) { Text("Stop monitoring") }
+                    else Button(onClick = onStart) { Text("Start monitoring") }
+                }
             }
-        } }
-        item { Text("Transparency", style = MaterialTheme.typography.titleMedium) }
-        item { Text("Current, voltage, temperature and level are Android-reported values. Capacity, health, wear cycles and efficiency are model estimates built from repeated charging measurements.", style = MaterialTheme.typography.bodyMedium) }
+        }
+        item { Text("Telemetry notes", style = MaterialTheme.typography.titleMedium) }
+        item {
+            Text(
+                "Current is normalized to battery direction: positive means current entering the battery, negative means current leaving it. Android reports charge counter as remaining charge in µAh; it is not the battery's full design capacity. Health, capacity, wear and efficiency are model estimates.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
     }
 }
+
+private fun formatCurrent(ma: Double): String =
+    if (kotlin.math.abs(ma) >= 1000.0) "${"%.2f".format(ma / 1000.0)} A" else "${"%.0f".format(ma)} mA"
 
 @Composable
 private fun HealthScreen(health: HealthEstimate, sessions: List<ChargeSession>) {
@@ -160,46 +211,57 @@ private fun HealthScreen(health: HealthEstimate, sessions: List<ChargeSession>) 
     val averageEfficiency = recent.map { it.efficiencyPercent }.average().takeIf { !it.isNaN() }
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp)) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                Text("Battery health", style = MaterialTheme.typography.labelLarge)
-                Text(health.healthPercent?.let { "${"%.1f".format(it)}%" } ?: "Collecting data", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-                Text(health.capacityMah?.let { "Estimated capacity: ${"%.0f".format(it)} mAh" } ?: "Complete a charge covering at least 60% to start an estimate")
-                Spacer(Modifier.height(8.dp))
-                Text("Confidence: ${health.confidencePercent}%", fontWeight = FontWeight.SemiBold)
-                Text("${health.completedSessions} usable recent session(s)")
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp)) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Battery health", style = MaterialTheme.typography.labelLarge)
+                    Text(health.healthPercent?.let { "${"%.1f".format(it)}%" } ?: "No estimate yet", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+                    Text(health.capacityMah?.let { "Estimated full capacity: ${"%.0f".format(it)} mAh" } ?: "Complete a charge covering at least 60 percentage points")
+                    Spacer(Modifier.height(8.dp))
+                    Text("Confidence: ${health.confidencePercent}%", fontWeight = FontWeight.SemiBold)
+                    Text(if (health.completedSessions > 0) "Based on ${health.completedSessions} recent usable session(s)" else health.source)
+                }
             }
-        } }
-        item { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetricCard("Recent wear", averageWear?.let { "${"%.2f".format(it)} cycles" } ?: "—", Modifier.weight(1f))
-            MetricCard("Efficiency", averageEfficiency?.let { "${"%.0f".format(it)}%" } ?: "—", Modifier.weight(1f))
-        } }
-        item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text("How BatteryScope estimates health", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                Text("During charging we integrate the measured charge current over time. The charge added is divided by the percentage gained to estimate full-charge capacity. Only sessions covering at least 60 percentage points are used, and the health result averages the most recent five usable sessions.")
-                Spacer(Modifier.height(6.dp))
-                Text("Health = estimated capacity ÷ 5,000 mAh × 100. The 5,000 mAh value is a configured model reference for this app profile.", style = MaterialTheme.typography.bodySmall)
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard("Recent wear", averageWear?.let { "${"%.2f".format(it)} cycles" } ?: "—", Modifier.weight(1f))
+                MetricCard("Efficiency", averageEfficiency?.let { "${"%.0f".format(it)}%" } ?: "—", Modifier.weight(1f))
             }
-        } }
-        item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                Text("Wear model", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                Text("Wear is a modeled cycle-cost estimate based on the highest voltage reached during a charge. Higher end voltage receives a higher wear cost; lowering the end voltage reduces modeled wear. This is an estimate, not an Android-reported battery-health field.")
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("How BatteryScope estimates health", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("During charging we integrate measured charge current over time. The charge added is divided by the percentage gained to estimate full-charge capacity. Only sessions covering at least 60 percentage points are used, and the health result averages the most recent five usable sessions.")
+                    Spacer(Modifier.height(6.dp))
+                    Text("Health = estimated capacity ÷ design reference × 100. The design reference is a configurable model value, not a factory-measured Android field.", style = MaterialTheme.typography.bodySmall)
+                }
             }
-        } }
-        item { Text("Completed charge sessions", style = MaterialTheme.typography.titleMedium) }
-        items(sessions.reversed()) { session -> Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("${session.startLevel}% → ${session.endLevel}%", fontWeight = FontWeight.SemiBold)
-                Text("Added: ${"%.0f".format(session.chargedMah)} mAh • Capacity: ${"%.0f".format(session.estimatedCapacityMah)} mAh")
-                Text("Wear: ${"%.2f".format(session.wearCycles)} cycles • Efficiency: ${"%.0f".format(session.efficiencyPercent)}%")
-                Text("Peak voltage: ${"%.3f".format(session.endVoltageV)} V")
-                Text(DateFormat.getDateTimeInstance().format(Date(session.endTime)), style = MaterialTheme.typography.bodySmall)
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("Wear model", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Wear is a modeled cycle-cost estimate based on the highest voltage reached during a charge. Higher end voltage receives a higher wear cost. This is an estimate, not a directly reported Android health value.")
+                }
             }
-        } }
+        }
+        item { Text("Charge sessions", style = MaterialTheme.typography.titleMedium) }
+        items(sessions.reversed()) { session ->
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("${session.startLevel}% → ${session.endLevel}%", fontWeight = FontWeight.SemiBold)
+                    Text("Added: ${"%.0f".format(session.chargedMah)} mAh • Estimated capacity: ${"%.0f".format(session.estimatedCapacityMah)} mAh")
+                    Text("Wear: ${"%.2f".format(session.wearCycles)} cycles • Efficiency: ${"%.0f".format(session.efficiencyPercent)}%")
+                    Text("Peak voltage: ${"%.3f".format(session.endVoltageV)} V")
+                    Text(DateFormat.getDateTimeInstance().format(Date(session.endTime)), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        if (sessions.isEmpty()) item { Text("No usable charge sessions yet. Keep monitoring while charging.") }
     }
 }
 
@@ -207,16 +269,24 @@ private fun HealthScreen(health: HealthEstimate, sessions: List<ChargeSession>) 
 private fun HistoryScreen(samples: List<HistorySample>) {
     LazyColumn(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Text("Temperature & power history", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Battery history", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Stored locally on the device. Maximum 500 samples.")
         }
         item { HorizontalDivider() }
-        items(samples.reversed().take(100)) { sample -> Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column { Text("${sample.level}% • ${"%.1f".format(sample.temperatureC)} °C"); Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(sample.timestamp)), style = MaterialTheme.typography.bodySmall) }
-                Column { Text("${"%.3f".format(sample.voltageV)} V"); Text(sample.currentMa?.let { "${"%.0f".format(it)} mA" } ?: "—", style = MaterialTheme.typography.bodySmall) }
+        items(samples.reversed().take(100)) { sample ->
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("${sample.level}% • ${"%.1f".format(sample.temperatureC)} °C")
+                        Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(sample.timestamp)), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Column {
+                        Text("${"%.3f".format(sample.voltageV)} V")
+                        Text(sample.currentMa?.let { formatCurrent(it) } ?: "—", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
-        } }
+        }
         if (samples.isEmpty()) item { Text("No history yet. Start monitoring to collect samples.") }
     }
 }
