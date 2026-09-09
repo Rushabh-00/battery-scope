@@ -130,9 +130,12 @@ private fun Dashboard(battery: BatterySnapshot, monitoring: Boolean, onStart: ()
         } }
         item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
             Column(modifier = Modifier.padding(18.dp)) {
-                Text("Capacity reference", style = MaterialTheme.typography.labelLarge)
+                Text("Battery capacity", style = MaterialTheme.typography.labelLarge)
                 Text("5,000 mAh", style = MaterialTheme.typography.headlineSmall)
-                Text("Design capacity used for health calculations. Actual device calibration may differ.")
+                Text("Configured design capacity used as the reference for health. It is not a factory-measured value from Android.")
+                battery.counterMicroAh?.let {
+                    Text("Android charge counter: ${"%.0f".format(it / 1000.0)} mAh", style = MaterialTheme.typography.bodySmall)
+                }
             }
         } }
         item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
@@ -146,36 +149,54 @@ private fun Dashboard(battery: BatterySnapshot, monitoring: Boolean, onStart: ()
             }
         } }
         item { Text("Transparency", style = MaterialTheme.typography.titleMedium) }
-        item { Text("Android-reported values are shown directly. Capacity and health are estimates derived from repeated charge sessions.", style = MaterialTheme.typography.bodyMedium) }
+        item { Text("Current, voltage, temperature and level are Android-reported values. Capacity, health, wear cycles and efficiency are model estimates built from repeated charging measurements.", style = MaterialTheme.typography.bodyMedium) }
     }
 }
 
 @Composable
 private fun HealthScreen(health: HealthEstimate, sessions: List<ChargeSession>) {
+    val recent = sessions.filter { it.endLevel - it.startLevel >= 60 }.takeLast(5)
+    val averageWear = recent.map { it.wearCycles }.average().takeIf { !it.isNaN() }
+    val averageEfficiency = recent.map { it.efficiencyPercent }.average().takeIf { !it.isNaN() }
+
     LazyColumn(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp)) {
             Column(modifier = Modifier.padding(24.dp)) {
-                Text("Estimated battery health", style = MaterialTheme.typography.labelLarge)
+                Text("Battery health", style = MaterialTheme.typography.labelLarge)
                 Text(health.healthPercent?.let { "${"%.1f".format(it)}%" } ?: "Collecting data", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-                Text(health.capacityMah?.let { "Estimated capacity: ${"%.0f".format(it)} mAh" } ?: "No usable full-charge measurements yet")
+                Text(health.capacityMah?.let { "Estimated capacity: ${"%.0f".format(it)} mAh" } ?: "Complete a charge covering at least 60% to start an estimate")
                 Spacer(Modifier.height(8.dp))
                 Text("Confidence: ${health.confidencePercent}%", fontWeight = FontWeight.SemiBold)
-                Text("${health.completedSessions} usable charging session(s)")
+                Text("${health.completedSessions} usable recent session(s)")
+            }
+        } }
+        item { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            MetricCard("Recent wear", averageWear?.let { "${"%.2f".format(it)} cycles" } ?: "—", Modifier.weight(1f))
+            MetricCard("Efficiency", averageEfficiency?.let { "${"%.0f".format(it)}%" } ?: "—", Modifier.weight(1f))
+        } }
+        item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Text("How BatteryScope estimates health", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                Text("During charging we integrate the measured charge current over time. The charge added is divided by the percentage gained to estimate full-charge capacity. Only sessions covering at least 60 percentage points are used, and the health result averages the most recent five usable sessions.")
+                Spacer(Modifier.height(6.dp))
+                Text("Health = estimated capacity ÷ 5,000 mAh × 100. The 5,000 mAh value is a configured model reference for this app profile.", style = MaterialTheme.typography.bodySmall)
             }
         } }
         item { Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp)) {
             Column(modifier = Modifier.padding(18.dp)) {
-                Text("How it works", style = MaterialTheme.typography.titleMedium)
+                Text("Wear model", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
-                Text("BatteryScope integrates charging current over time, relates the measured charge to the percentage gained, and averages completed sessions. One partial session is not treated as a trustworthy battery-health result.")
+                Text("Wear is a modeled cycle-cost estimate based on the highest voltage reached during a charge. Higher end voltage receives a higher wear cost; lowering the end voltage reduces modeled wear. This is an estimate, not an Android-reported battery-health field.")
             }
         } }
-        item { Text("Completed sessions", style = MaterialTheme.typography.titleMedium) }
+        item { Text("Completed charge sessions", style = MaterialTheme.typography.titleMedium) }
         items(sessions.reversed()) { session -> Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("${session.startLevel}% → ${session.endLevel}%", fontWeight = FontWeight.SemiBold)
-                Text("Charged: ${"%.0f".format(session.chargedMah)} mAh")
-                Text("Estimated capacity: ${"%.0f".format(session.estimatedCapacityMah)} mAh")
+                Text("Added: ${"%.0f".format(session.chargedMah)} mAh • Capacity: ${"%.0f".format(session.estimatedCapacityMah)} mAh")
+                Text("Wear: ${"%.2f".format(session.wearCycles)} cycles • Efficiency: ${"%.0f".format(session.efficiencyPercent)}%")
+                Text("Peak voltage: ${"%.3f".format(session.endVoltageV)} V")
                 Text(DateFormat.getDateTimeInstance().format(Date(session.endTime)), style = MaterialTheme.typography.bodySmall)
             }
         } }
