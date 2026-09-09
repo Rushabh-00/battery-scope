@@ -76,28 +76,6 @@ jobs:
             app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-  quality:
-    name: 3 • Quality checks
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.1.0'
-
-      - name: Run unit tests
-        run: gradle test --stacktrace
-
   package:
     name: 4 • Package
     needs: [build, prepare]
@@ -121,6 +99,28 @@ jobs:
             dist/**/*.apk
             SHA256SUMS.txt
           if-no-files-found: error
+
+  quality:
+    name: 3 • Quality checks
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.1.0'
+
+      - name: Run unit tests
+        run: gradle test --stacktrace
 
   publish:
     name: 5 • Publish test release
