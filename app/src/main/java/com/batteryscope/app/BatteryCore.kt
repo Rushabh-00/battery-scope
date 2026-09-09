@@ -8,6 +8,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+const val DESIGN_CAPACITY_MAH = 5000.0
 const val CURRENT_CALIBRATION_MIN_MA = 20.0
 const val CURRENT_CALIBRATION_MAX_RATIO = 100.0
 
@@ -216,7 +217,7 @@ class MeasurementEngine(private val store: BatteryStore) {
         if (previousCounter == null || previousTimestamp <= 0L) return
 
         val elapsedMs = snapshot.timestamp - previousTimestamp
-        if (elapsedMs !in 30_000L..300_000L) return
+        if (elapsedMs !in 20_000L..180_000L) return
 
         val counterDeltaMicroAh = counter - previousCounter
         val observedMa = abs(counterDeltaMicroAh / (elapsedMs / 3_600_000.0) / 1000.0)
@@ -228,9 +229,9 @@ class MeasurementEngine(private val store: BatteryStore) {
 
         val previousScale = store.autoCurrentScale()
         val smoothing = when {
-            ratio / previousScale in 0.8..1.25 -> 0.30
-            ratio / previousScale in 0.5..2.0 -> 0.20
-            else -> 0.10
+            ratio / previousScale in 0.8..1.25 -> 0.35
+            ratio / previousScale in 0.5..2.0 -> 0.25
+            else -> 0.15
         }
         val updatedScale = (previousScale * (1.0 - smoothing) + ratio * smoothing).coerceIn(0.25, 1000.0)
         store.setAutoCurrentScale(updatedScale)
