@@ -16,7 +16,6 @@ class BatterySessionAnalyzer(context: Context) {
     )
 
     private val tracker = CapacitySessionTracker(context)
-    private val capacityPreferences = CapacityPreferences(context)
 
     fun update(snapshot: BatterySnapshot, nowMs: Long = System.currentTimeMillis()): Analysis {
         val state = tracker.update(
@@ -29,7 +28,7 @@ class BatterySessionAnalyzer(context: Context) {
         )
 
         val health = BatteryHealthCalculator.calculate(
-            designCapacityMah = snapshot.batteryCapacityMah ?: capacityPreferences.designCapacityMah,
+            designCapacityMah = snapshot.batteryCapacityMah,
             fullChargeCapacitiesMah = state.fullChargeSessions.map { it.estimatedCapacityMah },
         )
         return Analysis(
