@@ -1,6 +1,7 @@
 package com.batteryscope.app
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,10 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import java.util.Locale
 import kotlin.math.abs
 
-private val Accent = Color(0xFF76B900)
-private const val CALIBRATION_SECONDS = 20
+private val Accent = Color(0xFF4F7CFF)
+private const val SETUP_SECONDS = 30
 
 class CalibrationActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,7 +51,7 @@ class CalibrationActivity : ComponentActivity() {
             openMain()
             return
         }
-        setContent { CalibrationScreen(onFinish = ::openMain) }
+        setContent { BatterySetupScreen(::openMain) }
     }
 
     private fun openMain() {
@@ -60,59 +63,73 @@ class CalibrationActivity : ComponentActivity() {
 }
 
 @Composable
-private fun CalibrationScreen(onFinish: () -> Unit) {
+private fun BatterySetupScreen(onFinish: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val store = remember { BatteryStore(context) }
     var elapsed by remember { mutableIntStateOf(0) }
+    var latest by remember { mutableStateOf<BatterySnapshot?>(null) }
     var readings by remember { mutableStateOf(emptyList<Double>()) }
-    var firstCounter by remember { mutableStateOf<Long?>(null) }
-    var firstTime by remember { mutableStateOf<Long?>(null) }
-    var scale by remember { mutableStateOf(store.autoCurrentScale()) }
-    var direction by remember { mutableStateOf("Detecting…") }
-    var result by remember { mutableStateOf("Sampling the battery sensor…") }
+    var connectedSeen by remember { mutableStateOf(false) }
+    var calibrationScale by remember { mutableStateOf(1.0) }
+    var stableCounterStart by remember { mutableStateOf<Long?>(null) }
+    var stableTimeStart by remember { mutableStateOf<Long?>(null) }
+    var message by remember { mutableStateOf("Reading the battery interface…") }
     var finished by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         store.clearCalibration()
-        store.resetAutoCurrentScale()
-        while (elapsed < CALIBRATION_SECONDS) {
+        var previous: BatterySnapshot? = null
+        while (elapsed < SETUP_SECONDS) {
             val snapshot = readBattery(context, 1.0)
-            val raw = snapshot.rawCurrentMa
-            direction = when {
-                snapshot.charging -> "Charging"
-                snapshot.status == "Discharging" -> "Discharging"
-                else -> "Not charging"
+            latest = snapshot
+            connectedSeen = connectedSeen || snapshot.charging
+            snapshot.sensorCurrentMa?.takeIf { abs(it) >= 0.5 }?.let { value ->
+                readings = (readings + abs(value)).takeLast(15)
             }
-            if (raw != null && abs(raw) >= 0.5) {
-                readings = (readings + abs(raw)).takeLast(12)
-                val startCounter = firstCounter
-                val startTime = firstTime
-                if (startCounter == null && snapshot.counterMicroAh != null) {
-                    firstCounter = snapshot.counterMicroAh
-                    firstTime = snapshot.timestamp
-                } else if (startCounter != null && startTime != null && snapshot.counterMicroAh != null) {
-                    val hours = (snapshot.timestamp - startTime).coerceAtLeast(1L) / 3_600_000.0
-                    val counterMa = abs(snapshot.counterMicroAh - startCounter) / 1000.0 / hours
-                    val sensorMa = readings.average()
-                    val ratio = if (sensorMa > 0.5) counterMa / sensorMa else Double.NaN
-                    if (counterMa >= CURRENT_CALIBRATION_MIN_MA && ratio.isFinite() && ratio in 0.25..CURRENT_CALIBRATION_MAX_RATIO) {
-                        scale = ratio.coerceIn(0.25, 1000.0)
-                        store.setAutoCurrentScale(scale)
+
+            val counter = snapshot.counterMicroAh
+            val prev = previous
+            if (snapshot.charging && counter != null && prev?.charging == true && prev.counterMicroAh != null) {
+                val dtMs = (snapshot.timestamp - prev.timestamp).coerceAtLeast(1L)
+                val deltaMicroAh = counter - prev.counterMicroAh
+                if (deltaMicroAh > 0L && dtMs >= 2_000L) {
+                    val observedMa = deltaMicroAh / (dtMs / 3_600_000.0) / 1000.0
+                    val rawMa = abs(snapshot.rawCurrentMa ?: 0.0)
+                    if (observedMa >= CURRENT_CALIBRATION_MIN_MA && rawMa >= 0.5) {
+                        val ratio = (observedMa / rawMa).takeIf { it.isFinite() && it in 0.25..CURRENT_CALIBRATION_MAX_RATIO }
+                        if (ratio != null) {
+                            calibrationScale = calibrationScale * 0.65 + ratio * 0.35
+                            store.setAutoCurrentScale(calibrationScale)
+                            message = "Current scale calibrated from charge-counter movement."
+                        }
                     }
                 }
             }
+            previous = snapshot
+            if (snapshot.counterMicroAh != null && snapshot.level in 20..99) {
+                val projected = snapshot.projectedCapacityMah
+                if (projected != null) {
+                    val existing = store.startupCapacityMah()
+                    val smoothed = if (existing == null) projected else existing * 0.80 + projected * 0.20
+                    store.saveStartupCapacityMah(smoothed)
+                }
+            }
+            stableCounterStart = stableCounterStart ?: snapshot.counterMicroAh
+            stableTimeStart = stableTimeStart ?: snapshot.timestamp
             elapsed += 2
-            delay(2000L)
+            if (!snapshot.charging) {
+                message = if (connectedSeen) "Charger removed; finalizing the measured calibration." else "Keep the phone idle. Connect the charger during setup to calibrate current scale more precisely."
+            }
+            delay(2_000L)
         }
 
-        val usable = readings.size >= 3 && scale.isFinite() && scale in 0.25..1000.0
-        result = if (usable) {
-            "Current scale aligned from sensor readings and charge-counter movement. Power will use the corrected current and live voltage."
-        } else {
-            "The device did not expose enough charge-counter movement for a full scale correction. BatteryScope will continue refining the reading automatically in the background."
+        finished = true
+        message = when {
+            connectedSeen && readings.size >= 3 -> "Setup complete. Current and power are now tied to the device readings."
+            readings.isNotEmpty() -> "Current sensor detected. More charge-counter data will refine the correction automatically."
+            else -> "Current data is unavailable from this device; BatteryScope will use the best available Android reading."
         }
         store.markCalibrationCompleted()
-        finished = true
     }
 
     MaterialTheme(colorScheme = androidx.compose.material3.lightColorScheme(primary = Accent)) {
@@ -122,42 +139,59 @@ private fun CalibrationScreen(onFinish: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 item {
-                    Text(if (finished) "Telemetry ready" else "Setting up telemetry", style = MaterialTheme.typography.headlineLarge)
+                    Text(if (finished) "Battery setup complete" else "Battery setup", style = MaterialTheme.typography.headlineLarge)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        if (finished) "Automatic current detection is complete. You can start using BatteryScope."
-                        else "Disconnect the charger and leave the phone idle for a moment. BatteryScope is measuring current direction, sensor scale and charge-counter movement automatically.",
+                        "BatteryScope automatically detects the available current sensor, charge counter and battery capacity estimate. Power is calculated from the corrected current and live voltage.",
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
                 item {
-                    CalibrationCard("Calibration progress") {
-                        LinearProgressIndicator(
-                            progress = { (elapsed.toFloat() / CALIBRATION_SECONDS).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth().height(8.dp)
-                        )
-                        Text("${(elapsed * 100 / CALIBRATION_SECONDS).coerceAtMost(100)}%")
+                    SetupCard("Device") {
+                        SensorLine("Android", "${Build.VERSION.RELEASE ?: "—"}")
+                        SensorLine("Battery level", latest?.let { "${it.level}%" } ?: "—")
+                        SensorLine("Voltage", latest?.let { format3(it.voltageV) + " V" } ?: "—")
+                        SensorLine("Temperature", latest?.let { format1(it.temperatureC) + " °C" } ?: "—")
                     }
                 }
                 item {
-                    CalibrationCard("Sensor readings") {
-                        SensorLine("Direction", direction)
-                        SensorLine("Current unit", "mA")
-                        SensorLine("Latest current", readings.lastOrNull()?.let { "${format1(it)} mA" } ?: "—")
-                        SensorLine("Average current", readings.takeIf { it.isNotEmpty() }?.average()?.let { "${format1(it)} mA" } ?: "—")
-                        SensorLine("Samples", readings.size.toString())
+                    SetupCard("Battery capacity") {
+                        SensorLine("Charge counter", latest?.chargeAh?.let { format3(it) + " Ah" } ?: "Not available")
+                        SensorLine("Estimated full capacity", latest?.projectedCapacityMah?.let { format0(it) + " mAh" } ?: store.startupCapacityMah()?.let { format0(it) + " mAh" } ?: "Learning…")
+                        Text("The capacity shown here is measured/estimated from Android charge-counter data. It is refined again after real charging sessions.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 item {
-                    CalibrationCard("Automatic correction") {
-                        SensorLine("Current scale", if (scale.isFinite()) format3(scale) else "—")
-                        Text(result, style = MaterialTheme.typography.bodySmall)
-                        Text("Power is calculated as corrected current × battery voltage, so A and W stay synchronized.", style = MaterialTheme.typography.bodySmall)
+                    SetupCard("Current calibration") {
+                        SensorLine("Sensor reading", latest?.sensorCurrentMa?.let { format1(abs(it)) + " mA" } ?: "—")
+                        SensorLine("Normalized current", latest?.currentMa?.let { format1(abs(it)) + " mA" } ?: "—")
+                        SensorLine("Power", latest?.let { format2(abs(it.powerW)) + " W" } ?: "—")
+                        SensorLine("Charging polarity", when {
+                            latest?.charging != true -> "Idle / discharge"
+                            latest?.sensorCurrentMa == null -> "Detected from status"
+                            latest.sensorCurrentMa > 0 -> "Positive sensor sign"
+                            latest.sensorCurrentMa < 0 -> "Negative sensor sign"
+                            else -> "Zero"
+                        })
+                        SensorLine("Correction", format3(calibrationScale) + "×")
+                        Text(message, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 item {
-                    Button(onClick = onFinish, enabled = finished, modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                        Text(if (finished) "CONTINUE" else "CALIBRATING…")
+                    LinearProgressIndicator(
+                        progress = { (elapsed.toFloat() / SETUP_SECONDS).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(8.dp)
+                    )
+                    Text("${(elapsed * 100 / SETUP_SECONDS).coerceAtMost(100)}% • ${readings.size} current samples")
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = onFinish, enabled = finished, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                            Text(if (finished) "OPEN BATTERYSCOPE" else "SETTING UP…")
+                        }
+                        OutlinedButton(onClick = onFinish, enabled = finished, modifier = Modifier.fillMaxWidth()) {
+                            Text("SKIP TO APP")
+                        }
                     }
                 }
             }
@@ -166,7 +200,7 @@ private fun CalibrationScreen(onFinish: () -> Unit) {
 }
 
 @Composable
-private fun CalibrationCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SetupCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
         Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
         RoundedCornerShape(24.dp),
@@ -187,5 +221,7 @@ private fun SensorLine(label: String, value: String) {
     }
 }
 
-private fun format1(value: Double): String = "%.1f".format(java.util.Locale.US, value)
-private fun format3(value: Double): String = "%.3f".format(java.util.Locale.US, value)
+private fun format0(value: Double): String = String.format(Locale.US, "%.0f", value)
+private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
+private fun format2(value: Double): String = String.format(Locale.US, "%.2f", value)
+private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
