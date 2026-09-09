@@ -3,6 +3,7 @@ package com.batteryscope.app.battery
 data class BatterySnapshot(
     val levelPercent: Int,
     val charging: Boolean,
+    val full: Boolean,
     val voltageV: Double?,
     val currentA: Double?,
     val temperatureC: Double?,
