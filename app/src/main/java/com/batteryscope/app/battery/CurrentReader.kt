@@ -4,9 +4,10 @@ import android.os.BatteryManager
 import java.io.File
 import kotlin.math.abs
 
-class CurrentReader(private val batteryManager: BatteryManager?) {
-    private var lastAmps: Double? = null
-
+class CurrentReader(
+    private val batteryManager: BatteryManager?,
+    private val invertChargingPolarity: Boolean
+) {
     fun readAmps(): Double? {
         val rawCandidates = buildList {
             readProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)?.let { add(it.toDouble()) }
@@ -22,13 +23,10 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
 
         val selected = candidates.minWithOrNull(
             compareBy<Candidate> { score(it) }.thenBy { it.correctionPenalty }
-        )?.amps
+        )?.amps ?: return null
 
-        if (selected != null && selected.isFinite()) {
-            lastAmps = selected
-            return selected
-        }
-        return null
+        val signed = if (invertChargingPolarity) -selected else selected
+        return if (abs(signed) < 0.0005) 0.0 else signed
     }
 
     private fun readProperty(property: Int): Long? =
@@ -58,10 +56,7 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
         val correctionPenalty: Int,
     )
 
-    /**
-     * Battery current properties are not consistent across all devices.
-     * Try common raw unit interpretations and the requested correction factors.
-     */
+    /** Try common raw unit interpretations and requested correction factors. */
     private fun normalizeCandidates(raw: Double): List<Candidate> {
         val magnitude = abs(raw)
         if (!magnitude.isFinite() || magnitude == 0.0) return emptyList()
@@ -85,20 +80,12 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
 
     private fun score(candidate: Candidate): Double {
         val amps = candidate.amps
-        val continuity = lastAmps?.let { previous ->
-            if (previous > 0.0) {
-                abs(amps - previous) / maxOf(previous, 0.05)
-            } else {
-                0.0
-            }
-        } ?: 0.0
-
         val usefulRangePenalty = when {
             amps in 0.05..5.0 -> 0.0
             amps < 0.05 -> 3.0
             else -> 3.0 + (amps - 5.0)
         }
-        return continuity + usefulRangePenalty + candidate.correctionPenalty * 0.05
+        return usefulRangePenalty + candidate.correctionPenalty * 0.05
     }
 
     companion object {
