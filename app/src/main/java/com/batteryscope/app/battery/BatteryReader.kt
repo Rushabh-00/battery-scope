@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import com.batteryscope.app.settings.AppSettings
 import java.io.File
 
 class BatteryReader(context: Context) {
@@ -11,13 +12,16 @@ class BatteryReader(context: Context) {
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val capacityReader = BatteryCapacityReader(appContext)
     private val capacityPreferences = CapacityPreferences(appContext)
-    private val settings = com.batteryscope.app.settings.AppSettings(appContext)
+    private val settings = AppSettings(appContext)
     private val currentReader = CurrentReader(
         batteryManager = batteryManager,
         invertChargingPolarity = settings.invertChargingPolarity,
     )
 
     fun read(): BatterySnapshot {
+        // Refresh the preference every sample so the Settings switch takes effect immediately.
+        currentReader.invertChargingPolarity = settings.invertChargingPolarity
+
         val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
         val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
