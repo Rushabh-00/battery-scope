@@ -8,13 +8,13 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.batteryscope.app.battery.BatteryReader
-import com.batteryscope.app.battery.ChargeDischargeTracker
+import com.batteryscope.app.battery.BatterySessionAnalyzer
 import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : android.app.Activity() {
     private lateinit var reader: BatteryReader
-    private val tracker = ChargeDischargeTracker()
+    private lateinit var analyzer: BatterySessionAnalyzer
     private val handler = Handler(Looper.getMainLooper())
     private val refreshTask = object : Runnable {
         override fun run() {
@@ -28,6 +28,7 @@ class MainActivity : android.app.Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         reader = BatteryReader(this)
+        analyzer = BatterySessionAnalyzer(this)
         buildUi()
         refresh()
     }
@@ -63,7 +64,9 @@ class MainActivity : android.app.Activity() {
             "Estimated capacity",
             "Charge",
             "Discharge",
-            "Battery health"
+            "Battery health",
+            "Battery wear",
+            "Full-charge sessions",
         )
 
         values = labels.map { label ->
@@ -101,7 +104,7 @@ class MainActivity : android.app.Activity() {
 
     private fun refresh() {
         val b = reader.read()
-        tracker.update(b.remainingMah, b.charging)
+        val analysis = analyzer.update(b)
         val temp = b.temperatureC?.let {
             if (temperatureF) "${((it * 9.0 / 5.0) + 32.0).roundToInt()} °F"
             else "${format1(it)} °C"
@@ -113,6 +116,11 @@ class MainActivity : android.app.Activity() {
             "Unavailable"
         }
 
+        val learnedCapacity = analysis.latestSessionCapacityMah
+            ?: analysis.learnedCapacityMah
+        val chargeTime = formatDuration(analysis.chargeTimeMs)
+        val dischargeTime = formatDuration(analysis.dischargeTimeMs)
+
         val rendered = listOf(
             b.powerW?.let { "${format1(it)} W" } ?: "Unavailable",
             b.currentA?.let { "${format1(it)} A" } ?: "Unavailable",
@@ -123,10 +131,13 @@ class MainActivity : android.app.Activity() {
             if (b.charging) "Yes" else "No",
             b.batteryCapacityMah?.let { "${format0(it)} mAh" } ?: "Unavailable",
             b.remainingMah?.let { "${format0(it)} mAh" } ?: "Unavailable",
-            b.estimatedCapacityMah?.let { "${format0(it)} mAh" } ?: "Learning / unavailable",
-            "${format0(tracker.chargedMah())} mAh",
-            "${format0(tracker.dischargedMah())} mAh",
-            "Not calculated yet",
+            learnedCapacity?.let { "${format0(it)} mAh" } ?: "Waiting for a full-charge session",
+            "${format0(analysis.chargeMah)} mAh • $chargeTime",
+            "${format0(analysis.dischargeMah)} mAh • $dischargeTime",
+            analysis.healthPercent?.let { "${format1(it)}%" }
+                ?: "Waiting for a full-charge session",
+            analysis.wearMah?.let { "${format0(it)} mAh" } ?: "Unavailable",
+            analysis.fullChargeSessionCount.toString(),
         )
 
         values.forEachIndexed { index, view -> view.text = rendered[index] }
@@ -136,4 +147,15 @@ class MainActivity : android.app.Activity() {
     private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
     private fun format2(value: Double): String = String.format(Locale.US, "%.2f", value)
     private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
+
+    private fun formatDuration(ms: Long): String {
+        val totalMinutes = ms / 60_000L
+        val hours = totalMinutes / 60L
+        val minutes = totalMinutes % 60L
+        return when {
+            hours > 0L -> "${hours}h ${minutes}m"
+            minutes > 0L -> "${minutes}m"
+            else -> "<1m"
+        }
+    }
 }
