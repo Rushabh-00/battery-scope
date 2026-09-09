@@ -21,7 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  prepare:
+    name: 1 • Prepare
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,25 +39,86 @@ jobs:
         with:
           gradle-version: '9.1.0'
 
-      - name: Build debug APK
-        run: gradle assembleDebug
+      - name: Validate Gradle project
+        run: gradle help
 
-      - name: Build release APK
-        run: gradle assembleRelease
+  build_debug:
+    name: 2 • Build debug APK
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.1.0'
+
+      - name: Assemble debug APK
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: BatteryScope-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
-      - name: Upload release APK artifact
+  build_release:
+    name: 3 • Build release APK
+    needs: build_debug
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.1.0'
+
+      - name: Assemble release APK
+        run: gradle assembleRelease --stacktrace
+
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: BatteryScope-release
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
-      - name: Publish automatic test release
+  publish:
+    name: 4 • Publish test release
+    needs: build_release
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_test_release)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: BatteryScope-debug
+          path: dist/debug
+
+      - name: Download release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: BatteryScope-release
+          path: dist/release
+
+      - name: Publish automatic test release from main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
@@ -65,14 +127,14 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: app/build/outputs/apk/debug/*.apk
+          files: dist/debug/*.apk
 
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: app/build/outputs/apk/release/*.apk
+          files: dist/release/*.apk
 
       - name: Publish manual test release
         if: github.event_name == 'workflow_dispatch' && inputs.publish_test_release
@@ -83,4 +145,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: app/build/outputs/apk/debug/*.apk
+          files: dist/debug/*.apk
