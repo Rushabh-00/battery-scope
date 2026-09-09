@@ -21,10 +21,11 @@ data class UiSettings(
     val invertCharging: Boolean = false,
     val powerScalar: Float = 1f,
     val updateIntervalSeconds: Int = 5,
-    val notificationEntries: Set<String> = setOf("W", "A", "V", "%"),
-    val lowBatteryAlarm: Boolean = true,
+    val notificationIndicator: String = "W",
+    val notificationEntries: Set<String> = setOf("W", "A", "mAh", "°C", "V", "Wh", "%"),
+    val lowBatteryAlarm: Boolean = false,
     val fullBatteryAlarm: Boolean = false,
-    val temperatureAlarm: Boolean = true
+    val temperatureAlarm: Boolean = false
 )
 
 class BatteryStore(context: Context) {
@@ -47,10 +48,11 @@ class BatteryStore(context: Context) {
         invertCharging = prefs.getBoolean("invertCharging", false),
         powerScalar = prefs.getFloat("powerScalar", 1f).coerceIn(0.5f, 2f),
         updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 5).coerceIn(2, 30),
-        notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "V", "%")) ?: setOf("W", "A", "V", "%"),
-        lowBatteryAlarm = prefs.getBoolean("lowBatteryAlarm", true),
-        fullBatteryAlarm = prefs.getBoolean("fullBatteryAlarm", false),
-        temperatureAlarm = prefs.getBoolean("temperatureAlarm", true)
+        notificationIndicator = prefs.getString("notificationIndicator", "W") ?: "W",
+        notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "mAh", "°C", "V", "Wh", "%")) ?: setOf("W", "A", "mAh", "°C", "V", "Wh", "%"),
+        lowBatteryAlarm = false,
+        fullBatteryAlarm = false,
+        temperatureAlarm = false
     )
 
     @Synchronized
@@ -68,13 +70,9 @@ class BatteryStore(context: Context) {
             .putBoolean("showEnergy", value.showEnergy)
             .putBoolean("showChargeTime", value.showChargeTime)
             .putBoolean("showScreenState", value.showScreenState)
-            .putBoolean("invertCharging", value.invertCharging)
-            .putFloat("powerScalar", value.powerScalar.coerceIn(0.5f, 2f))
             .putInt("updateIntervalSeconds", value.updateIntervalSeconds.coerceIn(2, 30))
+            .putString("notificationIndicator", value.notificationIndicator)
             .putStringSet("notificationEntries", value.notificationEntries)
-            .putBoolean("lowBatteryAlarm", value.lowBatteryAlarm)
-            .putBoolean("fullBatteryAlarm", value.fullBatteryAlarm)
-            .putBoolean("temperatureAlarm", value.temperatureAlarm)
             .apply()
     }
 
