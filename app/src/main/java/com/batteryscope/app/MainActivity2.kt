@@ -10,10 +10,8 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,8 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -120,7 +116,7 @@ class MainActivity2 : ComponentActivity() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column {
-                            Text("BatteryScope", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text("BatteryScope", style = MaterialTheme.typography.headlineSmall)
                             Text("Battery telemetry & health", style = MaterialTheme.typography.bodySmall)
                         }
                         OutlinedButton(onClick = { tab = 4 }) { Text("⚙ Settings") }
@@ -198,7 +194,7 @@ private fun StatusCard2(battery: BatterySnapshot, settings: UiSettings, title: S
     Card(Modifier.fillMaxWidth(), RoundedCornerShape(28.dp)) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge)
-            Text("${battery.level}%", style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
+            Text("${battery.level}%", style = MaterialTheme.typography.displayLarge)
             Text(battery.status, style = MaterialTheme.typography.titleLarge)
             Text("${formatTemp2(battery.temperatureC, settings.temperatureF)} • ${format3_2(battery.voltageV)} V")
             Text("Current: ${formatCurrent2(battery.currentMa, settings.currentUnit)}")
@@ -228,7 +224,7 @@ private fun TelemetryCard2(battery: BatterySnapshot, settings: UiSettings) {
 private fun HealthScreen2(health: HealthEstimate, sessions: List<ChargeSession>, settings: UiSettings) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { InfoCard2("Battery health") {
-            Text(health.healthPercent?.let { "${format1_2(it)}%" } ?: "No estimate yet", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+            Text(health.healthPercent?.let { "${format1_2(it)}%" } ?: "No estimate yet", style = MaterialTheme.typography.displayMedium)
             Text("Estimated capacity: ${health.capacityMah?.let { formatCapacity2(it, settings.chargeUnit) } ?: "—"}")
             Text("Usable sessions: ${health.completedSessions} • Confidence: ${health.confidencePercent}%")
         } }
@@ -247,7 +243,7 @@ private fun HealthScreen2(health: HealthEstimate, sessions: List<ChargeSession>,
 @Composable
 private fun HistoryScreen2(samples: List<HistorySample>, sessions: List<ChargeSession>, settings: UiSettings) {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { Text("History", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        item { Text("History", style = MaterialTheme.typography.headlineSmall) }
         item { Text("Charge sessions: ${sessions.size}") }
         items(sessions.asReversed()) { s -> InfoCard2(formatDate2(s.endTime)) {
             Text("${s.startLevel}% → ${s.endLevel}%")
@@ -267,7 +263,7 @@ private fun SettingsScreen2(settings: UiSettings, onChange: (UiSettings) -> Unit
     val metricKeys = listOf("W", "A", "mAh", "°C", "V", "Wh", "%")
     val tempLabel = if (settings.temperatureF) "°F" else "°C"
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        item { Text("Settings", style = MaterialTheme.typography.headlineSmall) }
         item { InfoCard2("Units") {
             Text("Current")
             OptionRow(listOf("A", "mA"), settings.currentUnit) { onChange(settings.copy(currentUnit = it)) }
@@ -346,7 +342,7 @@ private fun MonitoringCard2(monitoring: Boolean, toggle: () -> Unit) {
 private fun InfoCard2(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(Modifier.fillMaxWidth(), RoundedCornerShape(22.dp)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
             content()
         }
     }
@@ -357,7 +353,7 @@ private fun MetricCard2(title: String, value: String, modifier: Modifier) {
     Card(modifier, RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(14.dp)) {
             Text(title, style = MaterialTheme.typography.labelMedium)
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         }
     }
 }
@@ -371,6 +367,7 @@ private fun SimpleLineChart2(values: List<Double>) {
     val min = values.minOrNull() ?: 0.0
     val max = values.maxOrNull() ?: 1.0
     val range = (max - min).takeIf { it > 0.0 } ?: 1.0
+    val primaryColor = MaterialTheme.colorScheme.primary
     androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(150.dp).padding(vertical = 8.dp)) {
         val path = androidx.compose.ui.graphics.Path()
         values.forEachIndexed { index, value ->
@@ -378,7 +375,7 @@ private fun SimpleLineChart2(values: List<Double>) {
             val y = size.height - ((value - min) / range).toFloat() * size.height
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
-        drawPath(path, color = MaterialTheme.colorScheme.primary, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f))
+        drawPath(path, color = primaryColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f))
     }
 }
 
@@ -386,7 +383,6 @@ private fun formatCurrent2(ma: Double?, unit: String): String {
     if (ma == null) return "—"
     return if (unit == "mA") "${format1_2(abs(ma))} mA" else "${format3_2(abs(ma) / 1000.0)} A"
 }
-
 private fun formatPower2(w: Double): String = "${format2_2(abs(w))} W"
 private fun formatCharge2(microAh: Long?, unit: String): String {
     if (microAh == null || microAh < 0) return "—"
