@@ -68,7 +68,17 @@ class CapacitySessionTracker(context: Context) {
 
         val deltaMs = (nowMs - lastTimeMs).coerceIn(0L, MAX_SAMPLE_GAP_MS)
         val hours = deltaMs / 3_600_000.0
-        val intervalMah = currentA?.let { abs(it) * hours }?.takeIf { it.isFinite() } ?: 0.0
+        val currentBasedMah = currentA?.let { abs(it) * hours }?.takeIf { it.isFinite() } ?: 0.0
+        val remainingDeltaMah = if (remainingMah != null && lastRemainingMah != null) {
+            remainingMah - lastRemainingMah!!
+        } else {
+            0.0
+        }
+        val intervalMah = when {
+            charging && remainingDeltaMah > MIN_RELIABLE_REMAINING_DELTA_MAH -> remainingDeltaMah
+            !charging && remainingDeltaMah < -MIN_RELIABLE_REMAINING_DELTA_MAH -> -remainingDeltaMah
+            else -> currentBasedMah
+        }.coerceAtLeast(0.0)
 
         if (charging) {
             if (!lastCharging) startChargeSession(nowMs)
@@ -219,6 +229,7 @@ class CapacitySessionTracker(context: Context) {
         private const val KEY_DISCHARGE_TIME_MS = "discharge_time_ms"
         private const val KEY_SESSIONS = "full_charge_sessions"
         private const val MAX_SAMPLE_GAP_MS = 60_000L
+        private const val MIN_RELIABLE_REMAINING_DELTA_MAH = 0.05
         private const val MAX_STORED_SESSIONS = 30
         private const val MAX_HEALTH_SESSIONS = 5
         private const val MIN_CAPACITY_MAH = 100.0
