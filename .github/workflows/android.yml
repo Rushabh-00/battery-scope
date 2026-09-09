@@ -15,8 +15,6 @@ on:
 permissions:
   contents: write
 
-# Only one release build is allowed to run at a time. A newer commit replaces
-# an older in-progress build so repeated commits do not waste CI time.
 concurrency:
   group: android-release-main
   cancel-in-progress: true
@@ -30,20 +28,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
           cache-read-only: false
+          cache-cleanup: on-success
+          add-job-summary: on-failure
 
       - name: Build release APK
         run: gradle assembleRelease --configuration-cache --build-cache --parallel
