@@ -31,7 +31,7 @@ class BatteryReader(context: Context) {
             ?.takeIf { it != Int.MIN_VALUE }?.div(10.0)
         val remainingMah = readChargeCounterMah()
         val currentA = currentReader.readAmps()
-        val designCapacityMah = capacityReader.read(voltageV).designMah ?: capacityPreferences.designCapacityMah
+        val designCapacityMah = capacityPreferences.designCapacityMah ?: capacityReader.read(voltageV).designMah
         val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
         val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
 
