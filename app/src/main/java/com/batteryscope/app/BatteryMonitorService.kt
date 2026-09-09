@@ -26,6 +26,7 @@ class BatteryMonitorService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var iconBitmap: Bitmap? = null
     private var lastCharging: Boolean? = null
+    private var lastPlugged: Boolean? = null
     private var screenOnStartElapsed = 0L
     private var screenOnTotalMs = 0L
     private var lastScreenPersistence = 0L
@@ -98,9 +99,11 @@ class BatteryMonitorService : Service() {
     }
 
     private fun updateChargingState(battery: BatterySnapshot) {
-        when {
-            battery.charging && lastCharging != true -> store.saveChargingSince(battery.timestamp)
-            !battery.charging && lastCharging == true -> store.saveChargingSince(null)
+        if (battery.charging) {
+            val current = store.chargingSinceMillis()
+            if (lastCharging == false || (lastCharging == null && current == null)) store.saveChargingSince(battery.timestamp)
+        } else if (lastCharging == true) {
+            store.saveChargingSince(null)
         }
         lastCharging = battery.charging
     }
@@ -121,6 +124,13 @@ class BatteryMonitorService : Service() {
         val plugged = battery.plugged ?: battery.charging
         val nowWall = battery.timestamp
         val nowElapsed = SystemClock.elapsedRealtime()
+
+        if (lastPlugged == true && !plugged) {
+            screenSessionStartMs = nowWall
+            screenOnTotalMs = 0L
+            screenOnStartElapsed = 0L
+        }
+        lastPlugged = plugged
 
         if (plugged) {
             if (screenOnStartElapsed != 0L) {
