@@ -32,7 +32,7 @@ class BatteryMonitorService : Service() {
             engine.observe(battery)
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(battery))
             maybeAlarm(battery)
-            handler.postDelayed(this, store.settings().updateIntervalSeconds * 1000L)
+            handler.postDelayed(this, nextPollDelayMs(battery))
         }
     }
 
@@ -45,12 +45,19 @@ class BatteryMonitorService : Service() {
         addRecent(battery)
         engine.observe(battery)
         startForeground(NOTIFICATION_ID, buildNotification(battery))
-        handler.postDelayed(monitor, store.settings().updateIntervalSeconds * 1000L)
+        handler.postDelayed(monitor, nextPollDelayMs(battery))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
     override fun onDestroy() { handler.removeCallbacks(monitor); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun nextPollDelayMs(battery: BatterySnapshot): Long {
+        val configuredMs = store.settings().updateIntervalSeconds * 1000L
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        val screenOffDischarging = !powerManager.isInteractive && !battery.charging
+        return if (screenOffDischarging) maxOf(configuredMs, 15_000L) else configuredMs
+    }
 
     private fun addRecent(snapshot: BatterySnapshot) {
         recent.addLast(snapshot)
@@ -104,14 +111,14 @@ class BatteryMonitorService : Service() {
             append(if (battery.charging) "Charging" else "Discharging")
             if ("%" in entries) append(" • ${battery.level}%")
             if ("A" in entries) battery.currentMa?.let { append(" • ${formatCurrent(it, settings.currentUnit)}") }
-            if ("W" in entries) battery.powerW?.let { append(" • ${formatPower(it, settings.powerScalar)}") }
+            if ("W" in entries) append(" • ${formatPower(battery.powerW, settings.powerScalar)}")
             if ("°C" in entries) append(" • ${String.format(Locale.US, "%.1f%s", temp, tempUnit)}")
             if ("V" in entries) append(" • ${String.format(Locale.US, "%.3f V", battery.voltageV)}")
         }
 
         val detail = buildString {
             if ("A" in entries) append("Now: ${battery.currentMa?.let { formatCurrent(it, settings.currentUnit) } ?: "Unavailable"}")
-            if ("W" in entries) battery.powerW?.let { if (isNotEmpty()) append(" • "); append(formatPower(it, settings.powerScalar)) }
+            if ("W" in entries) append("${if (isNotEmpty()) " • " else ""}${formatPower(battery.powerW, settings.powerScalar)}")
             if ("A" in entries) average?.let { append("\nAvg: ${formatCurrent(it, settings.currentUnit)}") }
             if (settings.showScreenState) append("\nScreen: ${if (interactive) "on" else "off"}")
             if ("V" in entries) append("\nVoltage: ${String.format(Locale.US, "%.3f V", battery.voltageV)}")
