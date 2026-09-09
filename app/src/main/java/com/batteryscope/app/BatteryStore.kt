@@ -18,14 +18,9 @@ data class UiSettings(
     val showEnergy: Boolean = true,
     val showChargeTime: Boolean = true,
     val showScreenState: Boolean = false,
-    val invertCharging: Boolean = false,
-    val powerScalar: Float = 1f,
     val updateIntervalSeconds: Int = 5,
     val notificationIndicator: String = "W",
-    val notificationEntries: Set<String> = setOf("W", "A", "mAh", "°C", "V", "Wh", "%"),
-    val lowBatteryAlarm: Boolean = false,
-    val fullBatteryAlarm: Boolean = false,
-    val temperatureAlarm: Boolean = false
+    val notificationEntries: Set<String> = setOf("W", "A", "mAh", "°C", "V", "Wh", "%")
 )
 
 class BatteryStore(context: Context) {
@@ -45,14 +40,9 @@ class BatteryStore(context: Context) {
         showEnergy = prefs.getBoolean("showEnergy", true),
         showChargeTime = prefs.getBoolean("showChargeTime", true),
         showScreenState = prefs.getBoolean("showScreenState", false),
-        invertCharging = prefs.getBoolean("invertCharging", false),
-        powerScalar = prefs.getFloat("powerScalar", 1f).coerceIn(0.5f, 2f),
         updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 5).coerceIn(2, 30),
         notificationIndicator = prefs.getString("notificationIndicator", "W") ?: "W",
-        notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "mAh", "°C", "V", "Wh", "%")) ?: setOf("W", "A", "mAh", "°C", "V", "Wh", "%"),
-        lowBatteryAlarm = false,
-        fullBatteryAlarm = false,
-        temperatureAlarm = false
+        notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "mAh", "°C", "V", "Wh", "%")) ?: setOf("W", "A", "mAh", "°C", "V", "Wh", "%")
     )
 
     @Synchronized
