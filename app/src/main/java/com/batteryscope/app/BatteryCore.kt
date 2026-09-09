@@ -179,6 +179,7 @@ class MeasurementEngine(private val store: BatteryStore) {
     private var calibrationTimestamp = 0L
 
     init {
+        store.resetAutoCurrentScale()
         store.activeChargeSession()?.let { saved ->
             if (System.currentTimeMillis() - saved.startTime <= 24L * 60L * 60L * 1000L) {
                 sessionStartLevel = saved.startLevel
@@ -287,7 +288,7 @@ class MeasurementEngine(private val store: BatteryStore) {
             val dtHours = (snapshot.timestamp - previous.timestamp).coerceAtLeast(0L) / 3_600_000.0
             if (dtHours in 0.0..0.10) sessionMah += abs(snapshot.currentMa) * dtHours
         }
-        if (sessionStartLevel != null && snapshot.charging) sessionPeakVoltage = maxOf(sessionPeakVoltage, snapshot.voltageV)
+        if (sessionStartLevel != null && snapshot.charging) sessionPeakVoltage = max(sessionPeakVoltage, snapshot.voltageV)
         if (sessionStartLevel != null && snapshot.charging && snapshot.level >= 99) finishSession(snapshot)
         else if (sessionStartLevel != null && previous?.charging == true && !snapshot.charging) finishSession(previous)
         checkpoint(snapshot)
