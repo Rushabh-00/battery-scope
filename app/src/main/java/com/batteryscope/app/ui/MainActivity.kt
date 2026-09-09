@@ -42,12 +42,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.batteryscope.app.battery.BatteryReader
 import com.batteryscope.app.battery.BatterySnapshot
 import com.batteryscope.app.battery.CapacityPreferences
-import com.batteryscope.app.battery.CapacitySessionTracker
 import com.batteryscope.app.settings.AppSettings
 import com.batteryscope.app.settings.UiPreferences
-import com.batteryscope.app.battery.BatteryReader
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -116,8 +115,7 @@ private fun LiveScreen(settings: AppSettings, onSettings: () -> Unit) {
                     items(metrics(value, settings)) { pair ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             MetricCard(pair.first, Modifier.weight(1f))
-                            pair.second?.let { MetricCard(it, Modifier.weight(1f)) }
-                                ?: Spacer(Modifier.weight(1f))
+                            pair.second?.let { MetricCard(it, Modifier.weight(1f)) } ?: Spacer(Modifier.weight(1f))
                         }
                     }
                     value.sessionAnalysis?.let { analysis ->
@@ -192,14 +190,12 @@ private fun metrics(b: BatterySnapshot, s: AppSettings): List<Pair<Metric, Metri
 }
 
 @Composable
-private fun MetricCard(m: Metric, modifier: Modifier = Modifier) {
-    Card(modifier, shape = RoundedCornerShape(22.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(m.title, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(4.dp))
-            Text(m.value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text(m.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+private fun MetricCard(m: Metric, modifier: Modifier = Modifier) = Card(modifier, shape = RoundedCornerShape(22.dp)) {
+    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        Text(m.title, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        Text(m.value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(m.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -297,7 +293,7 @@ private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPrefer
                 item { Section("Battery capacity") {
                     Text("Design / reference capacity", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(capacity, { capacity = it; message = "" }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Battery capacity (mAh)") }, placeholder = { Text("Example: 4500") })
+                    OutlinedTextField(value = capacity, onValueChange = { capacity = it; message = "" }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Battery capacity (mAh)") }, placeholder = { Text("Example: 4500") })
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = {
@@ -317,7 +313,7 @@ private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPrefer
                             Text("Invert charging polarity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                             Text("Changes current sign live. Power always follows current sign.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(invert, { invert = it; settings.invertChargingPolarity = it })
+                        Switch(checked = invert, onCheckedChange = { invert = it; settings.invertChargingPolarity = it })
                     }
                 } }
             }
@@ -329,7 +325,10 @@ private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPrefer
 private fun Section(title: String, content: @Composable Column.() -> Unit) = Card(shape = RoundedCornerShape(22.dp)) {
     Column(Modifier.fillMaxWidth().padding(18.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(14.dp)); content()
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(14.dp))
+        content()
     }
 }
 
@@ -339,7 +338,7 @@ private fun Choice(title: String, options: List<String>, selected: String, onSel
         Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { FilterChip(selected == it, { onSelected(it) }, label = { Text(it) }) }
+            options.forEach { FilterChip(selected = selected == it, onClick = { onSelected(it) }, label = { Text(it) }) }
         }
     }
 }
@@ -364,7 +363,9 @@ private fun energyText(b: BatterySnapshot, u: AppSettings.ChargeUnit): String {
 }
 private fun duration(ms: Long): String {
     if (ms <= 0) return "0 min"
-    val mins = ms / 60000; val h = mins / 60; val m = mins % 60
+    val mins = ms / 60000
+    val h = mins / 60
+    val m = mins % 60
     return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 private fun date(ms: Long) = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
