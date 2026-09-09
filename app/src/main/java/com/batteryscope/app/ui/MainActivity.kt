@@ -52,6 +52,7 @@ import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -322,6 +323,7 @@ private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPrefer
                         onValueChange = { value ->
                             val rounded = (value / 250f).roundToInt() * 250L
                             updateIntervalMs = rounded.coerceIn(1_250L, 10_000L)
+                            settings.updateIntervalMs = updateIntervalMs
                         },
                         valueRange = 1_250f..10_000f,
                         steps = 34,
@@ -330,7 +332,6 @@ private fun SettingsScreen(theme: UiPreferences.Theme, onThemeChanged: (UiPrefer
                         Text("1.25 s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("10 s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    settings.updateIntervalMs = updateIntervalMs
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f).padding(end = 16.dp)) {
