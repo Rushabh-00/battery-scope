@@ -10,17 +10,19 @@ data class UiSettings(
     val energyUnit: String = "Wh",
     val temperatureF: Boolean = false,
     val theme: String = "AUTO",
-    val showCurrent: Boolean = true,
-    val showPower: Boolean = true,
-    val showVoltage: Boolean = true,
-    val showTemperature: Boolean = true,
-    val showRemainingCharge: Boolean = true,
-    val showEnergy: Boolean = true,
     val showChargeTime: Boolean = true,
     val showScreenState: Boolean = false,
     val updateIntervalSeconds: Int = 5,
+    val notificationEnabled: Boolean = true,
     val notificationIndicator: String = "W",
     val notificationEntries: Set<String> = setOf("W", "A", "mAh", "°C", "V", "Wh", "%")
+)
+
+data class ActiveChargeSession(
+    val startTime: Long,
+    val startLevel: Int,
+    val chargedMah: Double,
+    val peakVoltageV: Double
 )
 
 class BatteryStore(context: Context) {
@@ -32,15 +34,10 @@ class BatteryStore(context: Context) {
         energyUnit = "Wh",
         temperatureF = prefs.getBoolean("temperatureF", false),
         theme = prefs.getString("theme", "AUTO") ?: "AUTO",
-        showCurrent = prefs.getBoolean("showCurrent", true),
-        showPower = prefs.getBoolean("showPower", true),
-        showVoltage = prefs.getBoolean("showVoltage", true),
-        showTemperature = prefs.getBoolean("showTemperature", true),
-        showRemainingCharge = prefs.getBoolean("showRemainingCharge", true),
-        showEnergy = prefs.getBoolean("showEnergy", true),
         showChargeTime = prefs.getBoolean("showChargeTime", true),
         showScreenState = prefs.getBoolean("showScreenState", false),
         updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 5).coerceIn(2, 30),
+        notificationEnabled = prefs.getBoolean("notificationEnabled", true),
         notificationIndicator = prefs.getString("notificationIndicator", "W") ?: "W",
         notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "mAh", "°C", "V", "Wh", "%")) ?: setOf("W", "A", "mAh", "°C", "V", "Wh", "%")
     )
@@ -52,17 +49,69 @@ class BatteryStore(context: Context) {
             .putString("chargeUnit", value.chargeUnit)
             .putBoolean("temperatureF", value.temperatureF)
             .putString("theme", value.theme)
-            .putBoolean("showCurrent", value.showCurrent)
-            .putBoolean("showPower", value.showPower)
-            .putBoolean("showVoltage", value.showVoltage)
-            .putBoolean("showTemperature", value.showTemperature)
-            .putBoolean("showRemainingCharge", value.showRemainingCharge)
-            .putBoolean("showEnergy", value.showEnergy)
             .putBoolean("showChargeTime", value.showChargeTime)
             .putBoolean("showScreenState", value.showScreenState)
             .putInt("updateIntervalSeconds", value.updateIntervalSeconds.coerceIn(2, 30))
+            .putBoolean("notificationEnabled", value.notificationEnabled)
             .putString("notificationIndicator", value.notificationIndicator)
             .putStringSet("notificationEntries", value.notificationEntries)
+            .apply()
+    }
+
+    fun autoCurrentScale(): Double = prefs.getFloat("autoCurrentScale", 1f).toDouble().coerceIn(0.25, 1000.0)
+
+    @Synchronized
+    fun setAutoCurrentScale(value: Double) {
+        prefs.edit().putFloat("autoCurrentScale", value.coerceIn(0.25, 1000.0).toFloat()).apply()
+    }
+
+    fun screenTimeMillis(): Long = prefs.getLong("screenTimeMillis", 0L).coerceAtLeast(0L)
+    fun screenTimeSessionStartMillis(): Long = prefs.getLong("screenTimeSessionStartMillis", 0L)
+    fun chargingSinceMillis(): Long? = prefs.getLong("chargingSinceMillis", 0L).takeIf { it > 0L }
+
+    @Synchronized
+    fun saveScreenTime(totalMillis: Long, sessionStartMillis: Long) {
+        prefs.edit()
+            .putLong("screenTimeMillis", totalMillis.coerceAtLeast(0L))
+            .putLong("screenTimeSessionStartMillis", sessionStartMillis.coerceAtLeast(0L))
+            .apply()
+    }
+
+    @Synchronized
+    fun saveChargingSince(value: Long?) {
+        val edit = prefs.edit()
+        if (value == null) edit.remove("chargingSinceMillis") else edit.putLong("chargingSinceMillis", value)
+        edit.apply()
+    }
+
+    fun activeChargeSession(): ActiveChargeSession? {
+        val start = prefs.getLong("activeSessionStartTime", 0L)
+        if (start <= 0L) return null
+        return ActiveChargeSession(
+            startTime = start,
+            startLevel = prefs.getInt("activeSessionStartLevel", 0),
+            chargedMah = prefs.getString("activeSessionMah", "0")?.toDoubleOrNull() ?: 0.0,
+            peakVoltageV = prefs.getString("activeSessionPeakVoltage", "0")?.toDoubleOrNull() ?: 0.0
+        )
+    }
+
+    @Synchronized
+    fun saveActiveChargeSession(session: ActiveChargeSession) {
+        prefs.edit()
+            .putLong("activeSessionStartTime", session.startTime)
+            .putInt("activeSessionStartLevel", session.startLevel)
+            .putString("activeSessionMah", session.chargedMah.toString())
+            .putString("activeSessionPeakVoltage", session.peakVoltageV.toString())
+            .apply()
+    }
+
+    @Synchronized
+    fun clearActiveChargeSession() {
+        prefs.edit()
+            .remove("activeSessionStartTime")
+            .remove("activeSessionStartLevel")
+            .remove("activeSessionMah")
+            .remove("activeSessionPeakVoltage")
             .apply()
     }
 
@@ -72,7 +121,10 @@ class BatteryStore(context: Context) {
         val array = JSONArray()
         list.takeLast(1000).forEach { s ->
             array.put(JSONObject().apply {
-                put("t", s.timestamp); put("l", s.level); put("temp", s.temperatureC); put("v", s.voltageV)
+                put("t", s.timestamp)
+                put("l", s.level)
+                put("temp", s.temperatureC)
+                put("v", s.voltageV)
                 put("i", s.currentMa ?: JSONObject.NULL)
             })
         }
@@ -100,9 +152,15 @@ class BatteryStore(context: Context) {
         val array = JSONArray()
         list.takeLast(50).forEach { s ->
             array.put(JSONObject().apply {
-                put("start", s.startTime); put("end", s.endTime); put("sl", s.startLevel); put("el", s.endLevel)
-                put("mah", s.chargedMah); put("cap", s.estimatedCapacityMah); put("endV", s.endVoltageV)
-                put("wear", s.wearCycles); put("eff", s.efficiencyPercent)
+                put("start", s.startTime)
+                put("end", s.endTime)
+                put("sl", s.startLevel)
+                put("el", s.endLevel)
+                put("mah", s.chargedMah)
+                put("cap", s.estimatedCapacityMah)
+                put("endV", s.endVoltageV)
+                put("wear", s.wearCycles)
+                put("eff", s.efficiencyPercent)
             })
         }
         prefs.edit().putString("sessions", array.toString()).apply()
@@ -119,8 +177,8 @@ class BatteryStore(context: Context) {
                     val endLevel = o.getInt("el")
                     val startLevel = o.getInt("sl")
                     val endV = o.optDouble("endV", 0.0)
-                    val wear = o.optDouble("wear", estimateWearCycles(endV, endLevel))
-                    val efficiency = o.optDouble("eff", if (wear > 0.0) (endLevel - startLevel) / (wear * 100.0) * 100.0 else 0.0)
+                    val wear = o.optDouble("wear", if (o.has("mah")) o.getDouble("mah") / DESIGN_CAPACITY_MAH else 0.0)
+                    val efficiency = o.optDouble("eff", 0.0)
                     add(ChargeSession(o.getLong("start"), o.getLong("end"), startLevel, endLevel, o.getDouble("mah"), o.getDouble("cap"), endV, wear, efficiency))
                 }
             }
