@@ -5,22 +5,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import com.batteryscope.app.settings.AppSettings
+import androidx.compose.ui.graphics.Color
+import com.batteryscope.app.settings.UiPreferences
 
 @Composable
 fun BatteryScopeTheme(
-    mode: AppSettings.ThemeMode,
+    mode: UiPreferences.Theme,
     content: @Composable () -> Unit,
 ) {
+    val systemDark = isSystemInDarkTheme()
     val dark = when (mode) {
-        AppSettings.ThemeMode.AUTO -> isSystemInDarkTheme()
-        AppSettings.ThemeMode.LIGHT -> false
-        AppSettings.ThemeMode.DARK -> true
-        AppSettings.ThemeMode.OLED -> true
+        UiPreferences.Theme.AUTO -> systemDark
+        UiPreferences.Theme.LIGHT -> false
+        UiPreferences.Theme.DARK, UiPreferences.Theme.OLED -> true
+    }
+    val colors = when (mode) {
+        UiPreferences.Theme.OLED -> darkColorScheme(
+            surface = Color.Black,
+            background = Color.Black,
+            surfaceContainer = Color(0xFF090909),
+        )
+        else -> if (dark) darkColorScheme() else lightColorScheme()
     }
 
-    MaterialTheme(
-        colorScheme = if (dark) darkColorScheme() else lightColorScheme(),
-        content = content,
-    )
+    MaterialTheme(colorScheme = colors, content = content)
 }
