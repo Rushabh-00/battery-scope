@@ -59,9 +59,18 @@ data class HistorySample(
     val powerW: Double get() = currentMa?.let { it * voltageV / 1000.0 } ?: 0.0
 }
 
-private fun normalizedCurrentMa(rawUa: Long?, charging: Boolean): Double? {
-    if (rawUa == null) return null
-    val magnitudeMa = abs(rawUa) / 1000.0
+private fun propertyOrNull(manager: BatteryManager, id: Int): Long? =
+    manager.getLongProperty(id).takeUnless { it == Long.MIN_VALUE }
+
+private fun chargingState(status: Int, manager: BatteryManager): Boolean = when (status) {
+    BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL -> true
+    BatteryManager.BATTERY_STATUS_DISCHARGING, BatteryManager.BATTERY_STATUS_NOT_CHARGING -> false
+    else -> manager.isCharging
+}
+
+private fun normalizedCurrentMa(rawMicroAmps: Long?, charging: Boolean): Double? {
+    if (rawMicroAmps == null) return null
+    val magnitudeMa = abs(rawMicroAmps) / 1000.0
     if (magnitudeMa < 0.5) return 0.0
     return if (charging) magnitudeMa else -magnitudeMa
 }
@@ -69,37 +78,41 @@ private fun normalizedCurrentMa(rawUa: Long?, charging: Boolean): Double? {
 fun readBattery(context: Context): BatterySnapshot {
     val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-    val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
+    val rawLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
+    val rawScale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+    val level = if (rawScale > 0) (rawLevel * 100.0 / rawScale).toInt().coerceIn(0, 100) else rawLevel.coerceIn(0, 100)
     val temp = (intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10.0
     val voltage = (intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0) / 1000.0
-    val status = when (intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)) {
+    val statusRaw = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+    val status = when (statusRaw) {
         BatteryManager.BATTERY_STATUS_CHARGING -> "Charging"
         BatteryManager.BATTERY_STATUS_FULL -> "Full"
         BatteryManager.BATTERY_STATUS_DISCHARGING -> "Discharging"
         BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "Not charging"
         else -> "Unknown"
     }
-    val charging = status == "Charging" || status == "Full"
+    val charging = chargingState(statusRaw, bm)
     val rawNowUa = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-        bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).let { if (it == Int.MIN_VALUE) null else it.toLong() }
+        propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
     } else null
     val rawAverageUa = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-        bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE).let { if (it == Int.MIN_VALUE) null else it.toLong() }
+        propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
     } else null
     val currentMa = normalizedCurrentMa(rawNowUa, charging)
     val averageCurrentMa = normalizedCurrentMa(rawAverageUa, charging)
-    val powerW = currentMa?.let { it * voltage / 1000.0 } ?: 0.0
+    val powerW = currentMa?.let { abs(it) * voltage / 1000.0 } ?: 0.0
+    val signedPowerW = if (charging) powerW else -powerW
     val chargeTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        bm.computeChargeTimeRemaining().takeIf { it >= 0 }
+        bm.computeChargeTimeRemaining().takeIf { it >= 0L }
     } else null
     val cycle = if (Build.VERSION.SDK_INT >= 34) {
         intent?.getIntExtra("android.os.extra.CYCLE_COUNT", -1)?.takeIf { it >= 0 }
     } else null
     val counter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-        bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER).takeIf { it >= 0 }
+        propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf { it >= 0L }
     } else null
     val energy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-        bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER).takeIf { it >= 0 }
+        propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)?.takeIf { it >= 0L }
     } else null
     return BatterySnapshot(
         timestamp = System.currentTimeMillis(),
@@ -108,9 +121,9 @@ fun readBattery(context: Context): BatterySnapshot {
         voltageV = voltage,
         status = status,
         technology = intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Unknown",
-        currentMa = currentMa,
-        averageCurrentMa = averageCurrentMa,
-        powerW = powerW,
+        currentMa = currentMa?.let { if (charging) abs(it) else -abs(it) },
+        averageCurrentMa = averageCurrentMa?.let { if (charging) abs(it) else -abs(it) },
+        powerW = signedPowerW,
         chargeTimeRemainingMs = chargeTime,
         cycleCount = cycle,
         counterMicroAh = counter,
