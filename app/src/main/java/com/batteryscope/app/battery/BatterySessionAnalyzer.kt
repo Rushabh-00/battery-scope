@@ -8,15 +8,10 @@ class BatterySessionAnalyzer(context: Context) {
         val latestSessionCapacityMah: Double?,
         val healthPercent: Double?,
         val wearMah: Double?,
-        val fullChargeSessionCount: Int,
         val chargeMah: Double,
         val dischargeMah: Double,
         val chargeTimeMs: Long,
         val dischargeTimeMs: Long,
-        val eligibleForFullMeasurement: Boolean,
-        val activeChargeMah: Double,
-        val activeChargeTimeMs: Long,
-        val activeChargeStartLevelPercent: Int?,
         val fullChargeSessions: List<CapacitySessionTracker.FullChargeSession>,
     )
 
@@ -33,9 +28,8 @@ class BatterySessionAnalyzer(context: Context) {
             full = snapshot.full,
         )
 
-        val referenceCapacity = snapshot.batteryCapacityMah ?: capacityPreferences.designCapacityMah
         val health = BatteryHealthCalculator.calculate(
-            designCapacityMah = referenceCapacity,
+            designCapacityMah = snapshot.batteryCapacityMah ?: capacityPreferences.designCapacityMah,
             fullChargeCapacitiesMah = state.fullChargeSessions.map { it.estimatedCapacityMah },
         )
         return Analysis(
@@ -43,20 +37,11 @@ class BatterySessionAnalyzer(context: Context) {
             latestSessionCapacityMah = tracker.latestEstimatedCapacityMah(),
             healthPercent = health.healthPercent,
             wearMah = health.wearMah,
-            fullChargeSessionCount = state.fullChargeSessions.size,
             chargeMah = state.totals.chargeMah,
             dischargeMah = state.totals.dischargeMah,
             chargeTimeMs = state.totals.chargeTimeMs,
             dischargeTimeMs = state.totals.dischargeTimeMs,
-            eligibleForFullMeasurement = state.eligibleForFullMeasurement,
-            activeChargeMah = state.activeChargeMah,
-            activeChargeTimeMs = state.activeChargeTimeMs,
-            activeChargeStartLevelPercent = state.activeChargeStartLevelPercent,
             fullChargeSessions = state.fullChargeSessions,
         )
-    }
-
-    fun setManualDesignCapacityMah(value: Double?) {
-        capacityPreferences.designCapacityMah = value
     }
 }
