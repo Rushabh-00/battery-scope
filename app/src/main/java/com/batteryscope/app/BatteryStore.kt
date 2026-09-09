@@ -20,7 +20,7 @@ data class UiSettings(
     val showScreenState: Boolean = false,
     val invertCharging: Boolean = false,
     val powerScalar: Float = 1f,
-    val updateIntervalSeconds: Int = 2,
+    val updateIntervalSeconds: Int = 5,
     val notificationEntries: Set<String> = setOf("W", "A", "V", "%"),
     val lowBatteryAlarm: Boolean = true,
     val fullBatteryAlarm: Boolean = false,
@@ -46,7 +46,7 @@ class BatteryStore(context: Context) {
         showScreenState = prefs.getBoolean("showScreenState", false),
         invertCharging = prefs.getBoolean("invertCharging", false),
         powerScalar = prefs.getFloat("powerScalar", 1f).coerceIn(0.5f, 2f),
-        updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 2).coerceIn(1, 30),
+        updateIntervalSeconds = prefs.getInt("updateIntervalSeconds", 5).coerceIn(2, 30),
         notificationEntries = prefs.getStringSet("notificationEntries", setOf("W", "A", "V", "%")) ?: setOf("W", "A", "V", "%"),
         lowBatteryAlarm = prefs.getBoolean("lowBatteryAlarm", true),
         fullBatteryAlarm = prefs.getBoolean("fullBatteryAlarm", false),
@@ -70,7 +70,7 @@ class BatteryStore(context: Context) {
             .putBoolean("showScreenState", value.showScreenState)
             .putBoolean("invertCharging", value.invertCharging)
             .putFloat("powerScalar", value.powerScalar.coerceIn(0.5f, 2f))
-            .putInt("updateIntervalSeconds", value.updateIntervalSeconds.coerceIn(1, 30))
+            .putInt("updateIntervalSeconds", value.updateIntervalSeconds.coerceIn(2, 30))
             .putStringSet("notificationEntries", value.notificationEntries)
             .putBoolean("lowBatteryAlarm", value.lowBatteryAlarm)
             .putBoolean("fullBatteryAlarm", value.fullBatteryAlarm)
