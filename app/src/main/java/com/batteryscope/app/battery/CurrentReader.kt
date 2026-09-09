@@ -3,9 +3,10 @@ package com.batteryscope.app.battery
 import android.os.BatteryManager
 import java.io.File
 import kotlin.math.abs
-import kotlin.math.ln
 
 class CurrentReader(private val batteryManager: BatteryManager?) {
+    private var lastAmps: Double? = null
+
     fun readAmps(): Double? {
         val rawCandidates = buildList {
             readProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)?.let { add(it.toDouble()) }
@@ -13,10 +14,18 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
             readSysfsRaw()?.let { add(it) }
         }
 
-        return rawCandidates.asSequence()
-            .mapNotNull(::normalizeRawCurrent)
-            .filter { it.isFinite() && it in MIN_PLAUSIBLE_AMPS..MAX_PLAUSIBLE_AMPS }
-            .minByOrNull(::plausibilityScore)
+        val readings = rawCandidates.mapNotNull(::normalizeCandidates).flatten()
+        if (readings.isEmpty()) return null
+
+        val selected = readings.minWithOrNull(compareBy<Candidate> {
+            score(it)
+        }?.thenBy { it.correctionPenalty } ?: compareBy { it.correctionPenalty })?.amps
+
+        if (selected != null && selected.isFinite()) {
+            lastAmps = selected
+            return selected
+        }
+        return null
     }
 
     private fun readProperty(property: Int): Long? =
@@ -36,47 +45,57 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
             .firstOrNull { it != 0.0 }
     }
 
+    private data class Candidate(
+        val amps: Double,
+        val correctionPenalty: Int,
+    )
+
     /**
-     * Battery current properties are not consistent across all devices.
-     * Try common unit conversions plus the requested correction factors.
-     * The score prefers realistic battery-current magnitudes and rejects
-     * values that would clearly be sensor/unit noise.
+     * Try common raw units first. When the normal interpretation is near
+     * zero, also test correction factors such as 0.5x, 1x, 2x and 1000x.
+     * This handles devices that expose a battery-current sensor in a vendor
+     * specific scale while keeping the reported value in a realistic range.
      */
-    private fun normalizeRawCurrent(raw: Double): Double? {
+    private fun normalizeCandidates(raw: Double): List<Candidate> {
         val magnitude = abs(raw)
-        if (!magnitude.isFinite() || magnitude == 0.0) return null
+        if (!magnitude.isFinite() || magnitude == 0.0) return emptyList()
 
-        val unitScales = doubleArrayOf(
-            1e-6, // microamps -> amps
-            1e-3, // milliamps -> amps
-            1.0,  // amps
-        )
-        val correctionMultipliers = doubleArrayOf(
-            0.5,
-            1.0,
-            2.0,
-            1000.0,
-        )
+        val base = when {
+            magnitude >= 100_000.0 -> magnitude / 1_000_000.0
+            magnitude >= 100.0 -> magnitude / 1_000.0
+            else -> magnitude
+        }
 
-        return unitScales.asSequence()
-            .flatMap { scale ->
-                correctionMultipliers.asSequence().map { multiplier ->
-                    magnitude * scale * multiplier
-                }
-            }
-            .filter { it.isFinite() && it in MIN_PLAUSIBLE_AMPS..MAX_PLAUSIBLE_AMPS }
-            .minByOrNull(::plausibilityScore)
+        val multipliers = if (base < MIN_USEFUL_AMPS || base > MAX_PLAUSIBLE_AMPS) {
+            doubleArrayOf(0.5, 1.0, 2.0, 1000.0)
+        } else {
+            doubleArrayOf(1.0, 0.5, 2.0, 1000.0)
+        }
+
+        return multipliers.mapIndexedNotNull { index, multiplier ->
+            val amps = base * multiplier
+            amps.takeIf { it.isFinite() && it in MIN_PLAUSIBLE_AMPS..MAX_PLAUSIBLE_AMPS }
+                ?.let { Candidate(it, index) }
+        }
     }
 
-    private fun plausibilityScore(amps: Double): Double {
-        if (amps in 0.05..5.0) {
-            return abs(ln(amps))
+    private fun score(candidate: Candidate): Double {
+        val amps = candidate.amps
+        val continuity = lastAmps?.let { previous ->
+            if (previous > 0.0) abs(amps - previous) / maxOf(previous, 0.05) else 0.0
+        } ?: 0.0
+
+        val usefulRangePenalty = when {
+            amps in 0.05..5.0 -> 0.0
+            amps < 0.05 -> 3.0
+            else -> 3.0 + (amps - 5.0)
         }
-        return 10.0 + abs(ln(amps / 1.0))
+        return continuity + usefulRangePenalty + candidate.correctionPenalty * 0.05
     }
 
     companion object {
-        private const val MIN_PLAUSIBLE_AMPS = 0.01
+        private const val MIN_PLAUSIBLE_AMPS = 0.005
+        private const val MIN_USEFUL_AMPS = 0.005
         private const val MAX_PLAUSIBLE_AMPS = 10.0
     }
 }
