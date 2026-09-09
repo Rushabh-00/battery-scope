@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import java.io.File
 import kotlin.math.abs
 
 class BatteryReader(context: Context) {
     private val appContext = context.applicationContext
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
+    private val capacityReader = BatteryCapacityReader()
 
     fun read(): BatterySnapshot {
         val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -29,7 +31,8 @@ class BatteryReader(context: Context) {
 
         val remainingMah = readChargeCounterMah()
         val currentA = readCurrentA()
-        val estimatedCapacityMah = estimateFullCapacity(remainingMah, levelPercent)
+        val capacity = capacityReader.read(remainingMah, levelPercent)
+        val estimatedCapacityMah = capacity.estimatedMah
         val powerW = if (currentA != null && voltageV != null) abs(currentA) * voltageV else null
         val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
 
@@ -40,6 +43,7 @@ class BatteryReader(context: Context) {
             currentA = currentA,
             temperatureC = temperatureC,
             remainingMah = remainingMah,
+            batteryCapacityMah = capacity.designMah,
             estimatedCapacityMah = estimatedCapacityMah,
             powerW = powerW,
             energyWh = energyWh,
@@ -47,17 +51,69 @@ class BatteryReader(context: Context) {
     }
 
     private fun readChargeCounterMah(): Double? {
-        val microAh = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER) ?: Int.MIN_VALUE
+        val microAh = batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+            ?: Long.MIN_VALUE
         return microAh.takeIf { it > 0 }?.toDouble()?.div(1000.0)
     }
 
     private fun readCurrentA(): Double? {
-        val microAmps = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: Int.MIN_VALUE
-        return microAmps.takeIf { it != Int.MIN_VALUE }?.toDouble()?.div(1_000_000.0)
+        val microAmps = batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            ?: Long.MIN_VALUE
+        if (microAmps == Long.MIN_VALUE) return null
+        return microAmps.toDouble() / 1_000_000.0
+    }
+}
+
+class BatteryCapacityReader {
+    data class Result(
+        val designMah: Double?,
+        val estimatedMah: Double?,
+    )
+
+    fun read(remainingMah: Double?, levelPercent: Int): Result {
+        val designMah = firstReadableMah(DESIGN_PATHS)
+        val fullMah = firstReadableMah(FULL_PATHS)
+        val estimatedFromLevel = if (fullMah == null && remainingMah != null && levelPercent in 20..99) {
+            (remainingMah * 100.0 / levelPercent).takeIf { it in 100.0..30_000.0 }
+        } else {
+            null
+        }
+        return Result(
+            designMah = designMah,
+            estimatedMah = fullMah ?: estimatedFromLevel
+        )
     }
 
-    private fun estimateFullCapacity(remainingMah: Double?, levelPercent: Int): Double? {
-        if (remainingMah == null || levelPercent < 10 || levelPercent > 99) return null
-        return (remainingMah * 100.0 / levelPercent).takeIf { it in 100.0..30_000.0 }
+    private fun firstReadableMah(paths: List<String>): Double? {
+        for (path in paths) {
+            val value = readMah(path)
+            if (value != null) return value
+        }
+        return null
+    }
+
+    private fun readMah(path: String): Double? {
+        val file = File(path)
+        if (!file.isFile || !file.canRead()) return null
+        val raw = file.readText().trim().toDoubleOrNull() ?: return null
+        if (raw <= 0.0) return null
+        return when {
+            raw > 1_000_000.0 -> raw / 1000.0
+            raw > 30_000.0 -> raw / 1000.0
+            else -> raw
+        }.takeIf { it in 100.0..30_000.0 }
+    }
+
+    companion object {
+        private val DESIGN_PATHS = listOf(
+            "/sys/class/power_supply/battery/charge_full_design",
+            "/sys/class/power_supply/BAT0/charge_full_design",
+            "/sys/class/power_supply/BATT/charge_full_design",
+        )
+        private val FULL_PATHS = listOf(
+            "/sys/class/power_supply/battery/charge_full",
+            "/sys/class/power_supply/BAT0/charge_full",
+            "/sys/class/power_supply/BATT/charge_full",
+        )
     }
 }
