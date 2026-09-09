@@ -10,7 +10,7 @@ import java.io.File
 class BatteryReader(context: Context) {
     private val appContext = context.applicationContext
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
-    private val capacityReader = BatteryCapacityReader(appContext)
+    private val capacityReader = BatteryCapacityReader()
     private val capacityPreferences = CapacityPreferences(appContext)
     private val settings = AppSettings(appContext)
     private val currentReader = CurrentReader(
@@ -19,7 +19,6 @@ class BatteryReader(context: Context) {
     )
 
     fun read(): BatterySnapshot {
-        // Refresh the preference every sample so the Settings switch takes effect immediately.
         currentReader.invertChargingPolarity = settings.invertChargingPolarity
 
         val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -38,9 +37,8 @@ class BatteryReader(context: Context) {
 
         val remainingMah = readChargeCounterMah()
         val currentA = currentReader.readAmps()
-        val capacity = capacityReader.read(remainingMah, levelPercent, voltageV)
+        val capacity = capacityReader.read(voltageV)
         val designCapacityMah = capacity.designMah ?: capacityPreferences.designCapacityMah
-        // Power follows the same signed current polarity. Do not invert power separately.
         val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
         val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
 
@@ -53,7 +51,7 @@ class BatteryReader(context: Context) {
             temperatureC = temperatureC,
             remainingMah = remainingMah,
             batteryCapacityMah = designCapacityMah,
-            estimatedCapacityMah = capacity.estimatedMah,
+            estimatedCapacityMah = null,
             powerW = powerW,
             energyWh = energyWh,
         )
@@ -66,24 +64,15 @@ class BatteryReader(context: Context) {
     }
 }
 
-class BatteryCapacityReader(private val context: Context) {
-    data class Result(
-        val designMah: Double?,
-        val estimatedMah: Double?,
-    )
+class BatteryCapacityReader {
+    data class Result(val designMah: Double?)
 
-    fun read(remainingMah: Double?, levelPercent: Int, voltageV: Double?): Result {
+    fun read(voltageV: Double?): Result {
         val powerSupplyDirs = File("/sys/class/power_supply").listFiles().orEmpty()
         val designMah = powerSupplyDirs.asSequence()
             .mapNotNull { readCapacityMah(it, "charge_full_design", voltageV) ?: readCapacityMah(it, "energy_full_design", voltageV) }
             .firstOrNull()
-        val fullMah = powerSupplyDirs.asSequence()
-            .mapNotNull { readCapacityMah(it, "charge_full", voltageV) ?: readCapacityMah(it, "energy_full", voltageV) }
-            .firstOrNull()
-        val estimatedFromCounter = if (remainingMah != null && levelPercent in 20..99) {
-            (remainingMah * 100.0 / levelPercent).takeIf { it in MIN_CAPACITY_MAH..MAX_CAPACITY_MAH }
-        } else null
-        return Result(designMah, fullMah ?: estimatedFromCounter)
+        return Result(designMah)
     }
 
     private fun readCapacityMah(dir: File, name: String, voltageV: Double?): Double? {
@@ -101,11 +90,6 @@ class BatteryCapacityReader(private val context: Context) {
                 else -> raw
             }
         }
-        return value.takeIf { it in MIN_CAPACITY_MAH..MAX_CAPACITY_MAH }
-    }
-
-    companion object {
-        private const val MIN_CAPACITY_MAH = 100.0
-        private const val MAX_CAPACITY_MAH = 30_000.0
+        return value.takeIf { it in 100.0..30_000.0 }
     }
 }
