@@ -14,6 +14,10 @@ class BatterySessionAnalyzer(context: Context) {
         val chargeTimeMs: Long,
         val dischargeTimeMs: Long,
         val eligibleForFullMeasurement: Boolean,
+        val activeChargeMah: Double,
+        val activeChargeTimeMs: Long,
+        val activeChargeStartLevelPercent: Int?,
+        val fullChargeSessions: List<CapacitySessionTracker.FullChargeSession>,
     )
 
     private val tracker = CapacitySessionTracker(context)
@@ -45,6 +49,10 @@ class BatterySessionAnalyzer(context: Context) {
             chargeTimeMs = state.totals.chargeTimeMs,
             dischargeTimeMs = state.totals.dischargeTimeMs,
             eligibleForFullMeasurement = state.eligibleForFullMeasurement,
+            activeChargeMah = state.activeChargeMah,
+            activeChargeTimeMs = state.activeChargeTimeMs,
+            activeChargeStartLevelPercent = state.activeChargeStartLevelPercent,
+            fullChargeSessions = state.fullChargeSessions,
         )
     }
 
