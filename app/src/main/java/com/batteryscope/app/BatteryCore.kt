@@ -20,7 +20,7 @@ data class BatterySnapshot(
     val technology: String,
     val currentMa: Double?,
     val averageCurrentMa: Double?,
-    val powerW: Double?,
+    val powerW: Double,
     val chargeTimeRemainingMs: Long?,
     val cycleCount: Int?,
     val counterMicroAh: Long?,
@@ -88,7 +88,7 @@ fun readBattery(context: Context): BatterySnapshot {
     } else null
     val currentMa = normalizedCurrentMa(rawNowUa, charging)
     val averageCurrentMa = normalizedCurrentMa(rawAverageUa, charging)
-    val powerW = currentMa?.let { it * voltage / 1000.0 }
+    val powerW = currentMa?.let { it * voltage / 1000.0 } ?: 0.0
     val chargeTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         bm.computeChargeTimeRemaining().takeIf { it >= 0 }
     } else null
