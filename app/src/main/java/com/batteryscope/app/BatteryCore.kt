@@ -1,7 +1,6 @@
 package com.batteryscope.app
 
 import android.content.Context
-import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
@@ -27,6 +26,8 @@ data class BatterySnapshot(
     val plugged: Boolean?
 ) {
     val charging: Boolean get() = status == "Charging" || status == "Full"
+    val chargeAh: Double? get() = counterMicroAh?.takeIf { it >= 0L }?.div(1_000_000.0)
+    val energyWh: Double? get() = chargeAh?.times(voltageV)
 }
 
 data class HealthEstimate(
@@ -92,7 +93,7 @@ fun readBattery(context: Context, currentScale: Double = 1.0): BatterySnapshot {
         else -> "Unknown"
     }
     val charging = chargingState(statusRaw, bm)
-    val plugged = intent?.let { it.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1).takeIf { p -> p >= 0 }?.let { p -> p != 0 } }
+    val plugged = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)?.takeIf { it >= 0 }?.let { it != 0 }
 
     val rawNowUa = propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
     val rawAverageUa = propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
@@ -106,7 +107,6 @@ fun readBattery(context: Context, currentScale: Double = 1.0): BatterySnapshot {
     val effectiveMa = baseRawMa?.let { it * currentScale.coerceIn(0.25, 1000.0) }
     val powerMagnitudeW = effectiveMa?.let { abs(it) * voltageV / 1000.0 } ?: 0.0
     val signedPowerW = if (charging) powerMagnitudeW else -powerMagnitudeW
-
     val chargeTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         bm.computeChargeTimeRemaining().takeIf { it >= 0L }
     } else null
@@ -124,7 +124,7 @@ fun readBattery(context: Context, currentScale: Double = 1.0): BatterySnapshot {
         status = status,
         technology = intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Unknown",
         currentMa = effectiveMa?.let { if (charging) abs(it) else -abs(it) },
-        averageCurrentMa = averageMa?.let { it * currentScale.coerceIn(0.25, 1000.0) },
+        averageCurrentMa = averageMa?.let { if (charging) abs(it) else -abs(it) },
         rawCurrentMa = baseRawMa,
         powerW = signedPowerW,
         chargeTimeRemainingMs = chargeTime,
@@ -183,8 +183,7 @@ class MeasurementEngine(private val store: BatteryStore) {
     }
 
     private fun checkpoint(snapshot: BatterySnapshot) {
-        if (sessionStartLevel == null) return
-        if (snapshot.timestamp - lastCheckpoint < 60_000L) return
+        if (sessionStartLevel == null || snapshot.timestamp - lastCheckpoint < 60_000L) return
         store.saveActiveChargeSession(
             ActiveChargeSession(
                 startTime = sessionStartTime ?: snapshot.timestamp,
@@ -211,8 +210,7 @@ class MeasurementEngine(private val store: BatteryStore) {
         lastCalibration = snapshot.timestamp
         lastCalibrationCounter = counter
         if (deltaMicroAh <= 5_000L || rawMa <= 0.5) return
-        val dtHours = elapsedMs / 3_600_000.0
-        val observedMa = abs(deltaMicroAh / dtHours / 1000.0)
+        val observedMa = abs(deltaMicroAh / (elapsedMs / 3_600_000.0) / 1000.0)
         if (observedMa < 20.0) return
         val ratio = observedMa / rawMa
         if (!ratio.isFinite() || ratio < 0.25 || ratio > 1000.0) return
@@ -230,19 +228,7 @@ class MeasurementEngine(private val store: BatteryStore) {
         if (delta >= 60 && capacity != null && capacity in 2500.0..6500.0) {
             val wear = calculateWearCycles(sessionMah)
             val efficiency = if (wear > 0.0) (delta / (wear * 100.0) * 100.0).coerceIn(0.0, 120.0) else 0.0
-            store.addSession(
-                ChargeSession(
-                    startTime = sessionStartTime ?: snapshot.timestamp,
-                    endTime = snapshot.timestamp,
-                    startLevel = start,
-                    endLevel = end,
-                    chargedMah = sessionMah,
-                    estimatedCapacityMah = capacity,
-                    endVoltageV = sessionPeakVoltage,
-                    wearCycles = wear,
-                    efficiencyPercent = efficiency
-                )
-            )
+            store.addSession(ChargeSession(sessionStartTime ?: snapshot.timestamp, snapshot.timestamp, start, end, sessionMah, capacity, sessionPeakVoltage, wear, efficiency))
         }
         clearSession()
     }
@@ -260,7 +246,6 @@ class MeasurementEngine(private val store: BatteryStore) {
     fun observe(snapshot: BatterySnapshot) {
         val previous = lastSample
         autoCalibrate(snapshot)
-
         if (snapshot.charging && sessionStartLevel == null && snapshot.level < 100) {
             sessionStartLevel = snapshot.level
             sessionStartTime = snapshot.timestamp
@@ -268,23 +253,14 @@ class MeasurementEngine(private val store: BatteryStore) {
             sessionPeakVoltage = snapshot.voltageV
             store.saveActiveChargeSession(ActiveChargeSession(snapshot.timestamp, snapshot.level, 0.0, snapshot.voltageV))
         }
-
         if (previous != null && previous.charging && snapshot.charging && snapshot.currentMa != null) {
             val dtHours = (snapshot.timestamp - previous.timestamp).coerceAtLeast(0L) / 3_600_000.0
             if (dtHours in 0.0..0.10) sessionMah += abs(snapshot.currentMa) * dtHours
         }
-        if (sessionStartLevel != null && snapshot.charging) {
-            sessionPeakVoltage = maxOf(sessionPeakVoltage, snapshot.voltageV)
-        }
-
-        if (sessionStartLevel != null && snapshot.charging && snapshot.level >= 99) {
-            finishSession(snapshot)
-        } else if (sessionStartLevel != null && previous?.charging == true && !snapshot.charging) {
-            finishSession(previous)
-        }
-
+        if (sessionStartLevel != null && snapshot.charging) sessionPeakVoltage = maxOf(sessionPeakVoltage, snapshot.voltageV)
+        if (sessionStartLevel != null && snapshot.charging && snapshot.level >= 99) finishSession(snapshot)
+        else if (sessionStartLevel != null && previous?.charging == true && !snapshot.charging) finishSession(previous)
         checkpoint(snapshot)
-
         if (previous == null || snapshot.timestamp - previous.timestamp >= 60_000L) {
             store.addSample(HistorySample(snapshot.timestamp, snapshot.level, snapshot.temperatureC, snapshot.voltageV, snapshot.currentMa))
         }
