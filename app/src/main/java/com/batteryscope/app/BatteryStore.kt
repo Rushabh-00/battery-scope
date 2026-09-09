@@ -46,6 +46,7 @@ class BatteryStore(context: Context) {
             array.put(JSONObject().apply {
                 put("start", it.startTime); put("end", it.endTime); put("sl", it.startLevel); put("el", it.endLevel)
                 put("mah", it.chargedMah); put("cap", it.estimatedCapacityMah)
+                put("endV", it.endVoltageV); put("wear", it.wearCycles); put("eff", it.efficiencyPercent)
             })
         }
         prefs.edit().putString("sessions", array.toString()).apply()
@@ -58,8 +59,25 @@ class BatteryStore(context: Context) {
             buildList {
                 for (i in 0 until a.length()) {
                     val o = a.getJSONObject(i)
-                    add(ChargeSession(o.getLong("start"), o.getLong("end"), o.getInt("sl"), o.getInt("el"),
-                        o.getDouble("mah"), o.getDouble("cap")))
+                    val capacity = o.getDouble("cap")
+                    val endLevel = o.getInt("el")
+                    val startLevel = o.getInt("sl")
+                    val legacyEndVoltage = o.optDouble("endV", Double.NaN)
+                    val wear = o.optDouble(
+                        "wear",
+                        if (legacyEndVoltage.isNaN()) 0.0 else estimateWearCycles(legacyEndVoltage, endLevel)
+                    )
+                    val efficiency = o.optDouble(
+                        "eff",
+                        if (wear > 0.0) (endLevel - startLevel) / (wear * 100.0) * 100.0 else 0.0
+                    )
+                    add(
+                        ChargeSession(
+                            o.getLong("start"), o.getLong("end"), startLevel, endLevel,
+                            o.getDouble("mah"), capacity, legacyEndVoltage.takeUnless { it.isNaN() } ?: 0.0,
+                            wear, efficiency
+                        )
+                    )
                 }
             }
         }.getOrElse { emptyList() }
