@@ -12,6 +12,7 @@ class BatteryReader(context: Context) {
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val capacityReader = BatteryCapacityReader()
     private val capacityPreferences = CapacityPreferences(appContext)
+    private val sessionAnalyzer = BatterySessionAnalyzer(appContext)
     private val settings = AppSettings(appContext)
     private val currentReader = CurrentReader(
         batteryManager = batteryManager,
@@ -42,7 +43,7 @@ class BatteryReader(context: Context) {
         val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
         val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
 
-        return BatterySnapshot(
+        val baseSnapshot = BatterySnapshot(
             levelPercent = levelPercent,
             charging = charging,
             full = full,
@@ -55,6 +56,7 @@ class BatteryReader(context: Context) {
             powerW = powerW,
             energyWh = energyWh,
         )
+        return baseSnapshot.copy(sessionAnalysis = sessionAnalyzer.update(baseSnapshot))
     }
 
     private fun readChargeCounterMah(): Double? {
