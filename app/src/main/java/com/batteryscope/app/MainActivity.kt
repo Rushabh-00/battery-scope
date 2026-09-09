@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -520,6 +519,6 @@ private fun classifyTemperature(celsius: Double): String = when {
 
 private fun formatDuration(ms: Long?): String {
     if (ms == null || ms <= 0) return "—"
-    val totalMinutes = ms / 60000
-    return if (totalMinutes >= 60) "${totalMinutes / 60}h ${totalMinutes % 60}m" else "${totalMinutes}m"
+    val totalMinutes = ms / 60000L
+    return if (totalMinutes >= 60L) "${totalMinutes / 60L}h ${totalMinutes % 60L}m" else "${totalMinutes}m"
 }
