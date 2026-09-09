@@ -37,7 +37,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.1.0'
+          gradle-version: '9.6.0'
 
       - name: Validate Gradle project
         run: gradle help
@@ -59,7 +59,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.1.0'
+          gradle-version: '9.6.0'
 
       - name: Assemble debug APK
         run: gradle assembleDebug --stacktrace
@@ -117,7 +117,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.1.0'
+          gradle-version: '9.6.0'
 
       - name: Run unit tests
         run: gradle test --stacktrace
