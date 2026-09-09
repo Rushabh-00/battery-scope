@@ -10,6 +10,7 @@ import java.io.File
 class BatteryReader(context: Context) {
     private val appContext = context.applicationContext
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
+    private val batteryChangedFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
     private val capacityReader = BatteryCapacityReader()
     private val capacityPreferences = CapacityPreferences(appContext)
     private val sessionAnalyzer = BatterySessionAnalyzer(appContext)
@@ -18,7 +19,7 @@ class BatteryReader(context: Context) {
 
     fun read(): BatterySnapshot {
         currentReader.invertChargingPolarity = settings.invertChargingPolarity
-        val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val intent = appContext.registerReceiver(null, batteryChangedFilter)
         val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
         val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
         val levelPercent = if (scale > 0) ((level * 100f) / scale).toInt().coerceIn(0, 100) else 0
@@ -26,9 +27,12 @@ class BatteryReader(context: Context) {
             ?: BatteryManager.BATTERY_STATUS_UNKNOWN
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
         val full = status == BatteryManager.BATTERY_STATUS_FULL || levelPercent >= 100
-        val voltageV = (intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0).takeIf { it > 0 }?.div(1000.0)
-        val temperatureC = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
-            ?.takeIf { it != Int.MIN_VALUE }?.div(10.0)
+        val voltageV = (intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0)
+            .takeIf { it > 0 }
+            ?.div(1000.0)
+        val temperatureC = (intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE)
+            .takeIf { it != Int.MIN_VALUE }
+            ?.div(10.0)
         val remainingMah = readChargeCounterMah()
         val currentA = currentReader.readAmps()
         val designCapacityMah = capacityPreferences.designCapacityMah ?: capacityReader.read(voltageV).designMah
@@ -80,10 +84,11 @@ class BatteryCapacityReader {
         val value = if (name.startsWith("energy_")) {
             val voltageMv = voltageV?.times(1000.0)?.takeIf { it > 0.0 } ?: return null
             raw / voltageMv
-        } else when {
-            raw > 1_000_000.0 -> raw / 1000.0
-            raw > 30_000.0 -> raw / 1000.0
-            else -> raw
+        } else {
+            when {
+                raw > 30_000.0 -> raw / 1000.0
+                else -> raw
+            }
         }
         return value.takeIf { it in 100.0..30_000.0 }
     }
