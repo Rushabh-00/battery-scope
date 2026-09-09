@@ -6,6 +6,12 @@ on:
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_test_release:
+        description: "Publish the build as a GitHub test release"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -46,9 +52,20 @@ jobs:
           name: BatteryScope-release
           path: app/build/outputs/apk/release/*.apk
 
-      - name: Publish GitHub Release
+      - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/*.apk
+
+      - name: Publish manual test release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_test_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.2.0-test
+          name: BatteryScope 0.2.0 Test
+          target_commitish: ${{ github.sha }}
+          prerelease: true
           generate_release_notes: true
           files: app/build/outputs/apk/release/*.apk
