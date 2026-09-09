@@ -6,12 +6,17 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import androidx.core.app.NotificationCompat
 import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.abs
@@ -21,17 +26,23 @@ class BatteryMonitorService : Service() {
     private lateinit var engine: MeasurementEngine
     private val handler = Handler(Looper.getMainLooper())
     private val recent = ArrayDeque<BatterySnapshot>()
-    private var lastLowAlarm = false
-    private var lastFullAlarm = false
-    private var lastHotAlarm = false
+    private var lastCharging: Boolean? = null
+    private var chargingSinceMs: Long? = null
+    private var iconBitmap: Bitmap? = null
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.DEFAULT_BOLD
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        style = Paint.Style.FILL
+    }
 
     private val monitor = object : Runnable {
         override fun run() {
             val battery = readBattery(this@BatteryMonitorService)
             addRecent(battery)
+            updateChargingSince(battery)
             engine.observe(battery)
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(battery))
-            maybeAlarm(battery)
             handler.postDelayed(this, nextPollDelayMs(battery))
         }
     }
@@ -40,16 +51,22 @@ class BatteryMonitorService : Service() {
         super.onCreate()
         store = BatteryStore(this)
         engine = MeasurementEngine(store)
-        createChannels()
+        createChannel()
         val battery = readBattery(this)
         addRecent(battery)
+        updateChargingSince(battery)
         engine.observe(battery)
         startForeground(NOTIFICATION_ID, buildNotification(battery))
         handler.postDelayed(monitor, nextPollDelayMs(battery))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
-    override fun onDestroy() { handler.removeCallbacks(monitor); super.onDestroy() }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(monitor)
+        super.onDestroy()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun nextPollDelayMs(battery: BatterySnapshot): Long {
@@ -64,30 +81,134 @@ class BatteryMonitorService : Service() {
         while (recent.size > 20) recent.removeFirst()
     }
 
-    private fun averageCurrent(): Double? = recent.mapNotNull { it.currentMa }.takeIf { it.isNotEmpty() }?.average()
-
-    private fun createChannels() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Persistent BatteryScope battery telemetry"
-        })
-        manager.createNotificationChannel(NotificationChannel(ALARM_CHANNEL_ID, "Battery alerts", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Low battery, full charge and temperature alerts"
-        })
-    }
-
-    private fun formatCurrent(ma: Double, unit: String): String {
-        return if (unit == "A") {
-            val amps = ma / 1000.0
-            if (abs(amps) < 0.1) String.format(Locale.US, "%.3f A", amps) else String.format(Locale.US, "%.2f A", amps)
-        } else {
-            if (abs(ma) < 10.0) String.format(Locale.US, "%.1f mA", ma) else String.format(Locale.US, "%.0f mA", ma)
+    private fun updateChargingSince(battery: BatterySnapshot) {
+        val charging = battery.charging
+        when {
+            charging && lastCharging != true -> chargingSinceMs = battery.timestamp
+            !charging && lastCharging == true -> chargingSinceMs = null
         }
+        lastCharging = charging
     }
 
-    private fun formatPower(w: Double, scalar: Float): String {
-        val value = w * scalar
-        return if (abs(value) < 0.1) String.format(Locale.US, "%.3f W", value) else String.format(Locale.US, "%.2f W", value)
+    private fun createChannel() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "BatteryScope • Live", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Persistent live battery telemetry"
+                setShowBadge(false)
+            }
+        )
+    }
+
+    private fun metricLabel(key: String, settings: UiSettings): String = when (key) {
+        "W" -> "Power"
+        "A" -> "Current"
+        "mAh" -> "Charge"
+        "Ah" -> "Charge"
+        "°C" -> "Temperature"
+        "V" -> "Voltage"
+        "Wh" -> "Energy"
+        "%" -> "Battery"
+        else -> key
+    }
+
+    private fun metricUnit(key: String, settings: UiSettings): String = when (key) {
+        "A" -> settings.currentUnit
+        "mAh" -> "mAh"
+        "Ah" -> "Ah"
+        "°C" -> if (settings.temperatureF) "°F" else "°C"
+        else -> key
+    }
+
+    private fun metricValue(key: String, battery: BatterySnapshot, settings: UiSettings): String = when (key) {
+        "W" -> format2(abs(battery.powerW))
+        "A" -> battery.currentMa?.let { if (settings.currentUnit == "A") format3(abs(it) / 1000.0) else format1(abs(it)) } ?: "—"
+        "mAh" -> battery.counterMicroAh?.takeIf { it >= 0 }?.let { format0(it / 1000.0) } ?: "—"
+        "Ah" -> battery.counterMicroAh?.takeIf { it >= 0 }?.let { format3(it / 1_000_000.0) } ?: "—"
+        "°C" -> if (settings.temperatureF) format1(battery.temperatureC * 9 / 5 + 32) else format1(battery.temperatureC)
+        "V" -> format3(battery.voltageV)
+        "Wh" -> battery.energyCounterNWh?.takeIf { it >= 0 }?.let { format2(it / 1_000_000_000.0) } ?: "—"
+        "%" -> battery.level.toString()
+        else -> "—"
+    }
+
+    private fun renderIcon(value: String, unit: String): Icon {
+        val density = resources.displayMetrics.density
+        val size = (48f * density).toInt().coerceAtLeast(48)
+        val bitmap = iconBitmap?.takeIf { it.width == size } ?: Bitmap.createBitmap(size, size, Bitmap.Config.ALPHA_8).also { iconBitmap = it }
+        bitmap.eraseColor(Color.TRANSPARENT)
+        val canvas = Canvas(bitmap)
+        val maxWidth = size * 0.92f
+        iconPaint.textSize = 40f * density
+        val measured = iconPaint.measureText(value)
+        if (measured > maxWidth && measured > 0f) iconPaint.textSize *= maxWidth / measured
+        canvas.drawText(value, size / 2f, size * 0.62f, iconPaint)
+        iconPaint.textSize = 18f * density
+        canvas.drawText(unit, size / 2f, size * 0.94f, iconPaint)
+        return Icon.createWithBitmap(bitmap)
+    }
+
+    private fun chargeTimeText(battery: BatterySnapshot): String? {
+        if (!battery.charging) return null
+        val direct = battery.chargeTimeRemainingMs
+        if (direct != null && direct > 0L) return formatDuration(direct)
+        if (battery.level >= 100) return "Full"
+        val levelFraction = battery.level / 100.0
+        val energyWh = battery.energyCounterNWh?.takeIf { it > 0 }?.div(1_000_000_000.0)
+        val powerW = abs(battery.powerW)
+        if (levelFraction <= 0.01 || energyWh == null || energyWh <= 0.0 || powerW <= 0.0) return null
+        val estimatedFullWh = energyWh / levelFraction
+        val remainingWh = estimatedFullWh * (1.0 - levelFraction)
+        return formatDuration((remainingWh / powerW * 3_600_000.0).toLong())
+    }
+
+    private fun buildNotification(battery: BatterySnapshot): Notification {
+        val settings = store.settings()
+        val primary = settings.notificationIndicator.takeIf { it in METRICS } ?: "W"
+        val primaryUnit = metricUnit(primary, settings)
+        val primaryValue = metricValue(primary, battery, settings)
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 7002, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("$primaryValue $primaryUnit")
+            .setSmallIcon(renderIcon(primaryValue, primaryUnit))
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_SERVICE)
+
+        val extras = settings.notificationEntries
+            .filter { it in METRICS && it != primary }
+            .sortedBy { METRIC_ORDER.indexOf(it) }
+        val style = Notification.InboxStyle()
+        extras.forEach { key ->
+            style.addLine("${metricLabel(key, settings)}  ${metricValue(key, battery, settings)} ${metricUnit(key, settings)}")
+        }
+        if (battery.charging && settings.showChargeTime) {
+            chargeTimeText(battery)?.let { style.addLine("Full in  $it") }
+        }
+        if (settings.showScreenState) {
+            val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
+            style.addLine("Screen  ${if (interactive) "on" else "off"}")
+        }
+        if (battery.charging && chargingSinceMs != null) {
+            style.addLine("Charging since  ${formatDuration(System.currentTimeMillis() - chargingSinceMs!!)}")
+        }
+        if (extras.isNotEmpty() || battery.charging || settings.showScreenState) {
+            val compact = extras.take(3).joinToString("  ") { key -> "${metricValue(key, battery, settings)} ${metricUnit(key, settings)}" }
+            builder.setStyle(style)
+            builder.setContentText(compact.ifBlank { chargeTimeText(battery) ?: "Battery telemetry" })
+        } else {
+            builder.setContentText("Battery telemetry")
+        }
+        return builder.build()
     }
 
     private fun formatDuration(ms: Long): String {
@@ -97,84 +218,15 @@ class BatteryMonitorService : Service() {
         return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
     }
 
-    private fun buildNotification(battery: BatterySnapshot): Notification {
-        val settings = store.settings()
-        val average = averageCurrent()
-        val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-        val remainingMah = battery.counterMicroAh?.div(1000.0)
-        val energyWh = battery.energyCounterNWh?.div(1_000_000_000.0)
-        val temp = if (settings.temperatureF) battery.temperatureC * 9.0 / 5.0 + 32.0 else battery.temperatureC
-        val tempUnit = if (settings.temperatureF) "°F" else "°C"
-        val entries = settings.notificationEntries
-
-        val compact = buildString {
-            append(if (battery.charging) "Charging" else "Discharging")
-            if ("%" in entries) append(" • ${battery.level}%")
-            if ("A" in entries) battery.currentMa?.let { append(" • ${formatCurrent(it, settings.currentUnit)}") }
-            if ("W" in entries) append(" • ${formatPower(battery.powerW, settings.powerScalar)}")
-            if ("°C" in entries) append(" • ${String.format(Locale.US, "%.1f%s", temp, tempUnit)}")
-            if ("V" in entries) append(" • ${String.format(Locale.US, "%.3f V", battery.voltageV)}")
-        }
-
-        val detail = buildString {
-            if ("A" in entries) append("Now: ${battery.currentMa?.let { formatCurrent(it, settings.currentUnit) } ?: "Unavailable"}")
-            if ("W" in entries) append("${if (isNotEmpty()) " • " else ""}${formatPower(battery.powerW, settings.powerScalar)}")
-            if ("A" in entries) average?.let { append("\nAvg: ${formatCurrent(it, settings.currentUnit)}") }
-            if (settings.showScreenState) append("\nScreen: ${if (interactive) "on" else "off"}")
-            if ("V" in entries) append("\nVoltage: ${String.format(Locale.US, "%.3f V", battery.voltageV)}")
-            if ("°C" in entries) append("\nTemperature: ${String.format(Locale.US, "%.1f%s", temp, tempUnit)}")
-            if ("Ah" in entries && remainingMah != null) append("\nRemaining charge: ${formatCharge(remainingMah, settings.chargeUnit)}")
-            if ("Wh" in entries && energyWh != null) append("\nEnergy: ${String.format(Locale.US, "%.2f Wh", energyWh)}")
-            if (battery.charging && settings.showChargeTime && battery.chargeTimeRemainingMs != null) append("\nFull in: ${formatDuration(battery.chargeTimeRemainingMs)}")
-        }
-
-        val openIntent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP }
-        val pendingIntent = PendingIntent.getActivity(this, 7002, openIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
-            .setContentTitle("BatteryScope • ${battery.level}%")
-            .setContentText(compact.ifEmpty { "Battery telemetry" })
-            .setStyle(NotificationCompat.BigTextStyle().bigText(detail.ifEmpty { compact }))
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setOnlyAlertOnce(true)
-            .setShowWhen(false)
-            .build()
-    }
-
-    private fun formatCharge(mah: Double, unit: String): String = if (unit == "Ah") String.format(Locale.US, "%.3f Ah", mah / 1000.0) else String.format(Locale.US, "%.0f mAh", mah)
-
-    private fun maybeAlarm(battery: BatterySnapshot) {
-        val settings = store.settings()
-        val manager = getSystemService(NotificationManager::class.java)
-        val low = settings.lowBatteryAlarm && battery.level <= 15
-        if (low && !lastLowAlarm) manager.notify(LOW_ALARM_ID, alarm("Low battery", "Battery is at ${battery.level}%"))
-        if (!low) lastLowAlarm = false else lastLowAlarm = true
-
-        val full = settings.fullBatteryAlarm && battery.status == "Full"
-        if (full && !lastFullAlarm) manager.notify(FULL_ALARM_ID, alarm("Battery full", "Battery reached full charge"))
-        if (!full) lastFullAlarm = false else lastFullAlarm = true
-
-        val hot = settings.temperatureAlarm && battery.temperatureC >= 45.0
-        if (hot && !lastHotAlarm) manager.notify(TEMP_ALARM_ID, alarm("High battery temperature", String.format(Locale.US, "Battery temperature is %.1f°C", battery.temperatureC)))
-        if (!hot) lastHotAlarm = false else lastHotAlarm = true
-    }
-
-    private fun alarm(title: String, text: String): Notification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.ic_dialog_alert)
-        .setContentTitle(title)
-        .setContentText(text)
-        .setAutoCancel(true)
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .build()
+    private fun format3(value: Double): String = String.format(Locale.US, "%.3f", value)
+    private fun format2(value: Double): String = String.format(Locale.US, "%.2f", value)
+    private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
+    private fun format0(value: Double): String = String.format(Locale.US, "%.0f", value)
 
     companion object {
         const val CHANNEL_ID = "battery_monitor"
-        const val ALARM_CHANNEL_ID = "battery_alerts"
         const val NOTIFICATION_ID = 7001
-        const val LOW_ALARM_ID = 7003
-        const val FULL_ALARM_ID = 7004
-        const val TEMP_ALARM_ID = 7005
+        private val METRICS = setOf("W", "A", "mAh", "°C", "V", "Wh", "%")
+        private val METRIC_ORDER = listOf("W", "A", "mAh", "°C", "V", "Wh", "%")
     }
 }
