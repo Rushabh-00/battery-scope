@@ -15,6 +15,8 @@ on:
 permissions:
   contents: write
 
+# Only one release build is allowed to run at a time. A newer commit replaces
+# an older in-progress build so repeated commits do not waste CI time.
 concurrency:
   group: android-release-main
   cancel-in-progress: true
@@ -44,7 +46,7 @@ jobs:
           cache-read-only: false
 
       - name: Build release APK
-        run: gradle assembleRelease --build-cache --stacktrace
+        run: gradle assembleRelease --configuration-cache --build-cache --parallel
 
       - name: Sign release APK
         env:
