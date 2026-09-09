@@ -7,7 +7,6 @@ import android.os.Build
 import kotlin.math.abs
 import kotlin.math.max
 
-const val DESIGN_CAPACITY_MAH = 5000.0
 const val CURRENT_CALIBRATION_MIN_MA = 20.0
 const val CURRENT_CALIBRATION_MAX_RATIO = 100.0
 
@@ -21,6 +20,7 @@ data class BatterySnapshot(
     val currentMa: Double?,
     val averageCurrentMa: Double?,
     val rawCurrentMa: Double?,
+    val sensorCurrentMa: Double?,
     val powerW: Double,
     val chargeTimeRemainingMs: Long?,
     val cycleCount: Int?,
@@ -31,6 +31,10 @@ data class BatterySnapshot(
     val charging: Boolean get() = status == "Charging" || status == "Full"
     val chargeAh: Double? get() = counterMicroAh?.takeIf { it >= 0L }?.div(1_000_000.0)
     val energyWh: Double? get() = chargeAh?.times(voltageV)
+    val projectedCapacityMah: Double? get() {
+        val chargeMah = chargeAh?.times(1000.0) ?: return null
+        return chargeMah.takeIf { level in 20..99 && it in 500.0..20_000.0 }?.let { it * 100.0 / level }
+    }
 }
 
 data class HealthEstimate(val capacityMah: Double?, val healthPercent: Double?, val confidencePercent: Int, val completedSessions: Int, val source: String)
@@ -45,15 +49,9 @@ private fun chargingState(status: Int, manager: BatteryManager): Boolean = when 
     BatteryManager.BATTERY_STATUS_DISCHARGING, BatteryManager.BATTERY_STATUS_NOT_CHARGING -> false
     else -> manager.isCharging
 }
-private fun normalizedCurrentMa(rawMicroAmps: Long?, charging: Boolean): Double? {
-    if (rawMicroAmps == null) return null
-    val magnitude = abs(rawMicroAmps) / 1000.0
-    if (magnitude < 0.5) return 0.0
-    return if (charging) magnitude else -magnitude
-}
-private fun chooseInitialCurrentMa(nowMa: Double?, averageMa: Double?): Double? {
-    val now = nowMa?.let(::abs)?.takeIf { it >= 0.5 }
-    val average = averageMa?.let(::abs)?.takeIf { it >= 0.5 }
+private fun chooseMagnitude(nowUa: Long?, averageUa: Long?): Double? {
+    val now = nowUa?.let { abs(it) / 1000.0 }?.takeIf { it >= 0.5 }
+    val average = averageUa?.let { abs(it) / 1000.0 }?.takeIf { it >= 0.5 }
     return when {
         now == null -> average
         average == null -> now
@@ -81,30 +79,31 @@ fun readBattery(context: Context, currentScale: Double = 1.0): BatterySnapshot {
     }
     val charging = chargingState(statusRaw, bm)
     val plugged = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)?.takeIf { it >= 0 }?.let { it != 0 }
-    val nowMa = normalizedCurrentMa(propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_NOW), charging)
-    val averageMa = normalizedCurrentMa(propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE), charging)
-    val baseMagnitudeMa = chooseInitialCurrentMa(nowMa, averageMa)
-    val baseRawMa = baseMagnitudeMa?.let { if (charging) it else -it }
-    val scale = currentScale.coerceIn(0.25, 1000.0)
+    val rawNowUa = propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+    val rawAverageUa = propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+    val sensorCurrentMa = rawNowUa?.let { it / 1000.0 }
+    val sensorAverageMa = rawAverageUa?.let { it / 1000.0 }
+    val magnitudeMa = chooseMagnitude(rawNowUa, rawAverageUa)
+    val baseRawMa = magnitudeMa?.let { if (charging) it else -it }
+    val scale = currentScale.coerceIn(0.25, 100.0)
     val effectiveMa = baseRawMa?.let { it * scale }
     val powerW = effectiveMa?.let { it * voltageV / 1000.0 } ?: 0.0
     val chargeTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) bm.computeChargeTimeRemaining().takeIf { it >= 0L } else null
     val cycleCount = if (Build.VERSION.SDK_INT >= 34) intent?.getIntExtra("android.os.extra.CYCLE_COUNT", -1)?.takeIf { it >= 0 } else null
     val chargeCounter = propertyOrNull(bm, BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)?.takeIf { it >= 0L }
     val estimatedEnergyNWh = chargeCounter?.let { ((it / 1_000_000.0) * voltageV * 1_000_000_000.0).toLong().takeIf { n -> n >= 0L } }
-    return BatterySnapshot(System.currentTimeMillis(), level, temperatureC, voltageV, status, intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Unknown", effectiveMa, averageMa?.let { (if (charging) it else -it) * scale }, baseRawMa, powerW, chargeTime, cycleCount, chargeCounter, estimatedEnergyNWh, plugged)
+    return BatterySnapshot(System.currentTimeMillis(), level, temperatureC, voltageV, status, intent?.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "Unknown", effectiveMa, sensorAverageMa?.let { (if (charging) abs(it) else -abs(it)) * scale }, baseRawMa, sensorCurrentMa, powerW, chargeTime, cycleCount, chargeCounter, estimatedEnergyNWh, plugged)
 }
 
 fun calculateCapacityMah(chargedMah: Double, percentageGain: Int): Double? = chargedMah.takeIf { it > 0.0 && percentageGain > 0 }?.let { it * 100.0 / percentageGain }
 fun healthConfidence(sessionCount: Int): Int = when { sessionCount <= 0 -> 0; sessionCount == 1 -> 20; sessionCount == 2 -> 35; sessionCount == 3 -> 50; sessionCount == 4 -> 60; sessionCount <= 7 -> 75; else -> 90 }
 fun estimateHealth(sessions: List<ChargeSession>, referenceCapacityMah: Double? = null): HealthEstimate {
-    val valid = sessions.filter { it.endLevel - it.startLevel >= 60 && it.estimatedCapacityMah > 0.0 }
-    if (valid.isEmpty()) return HealthEstimate(null, null, 0, 0, "Estimated from usable charging sessions")
+    val valid = sessions.filter { it.endLevel - it.startLevel >= 60 && it.estimatedCapacityMah in 1000.0..20_000.0 }
+    if (valid.isEmpty()) return HealthEstimate(null, null, 0, 0, "Learning from measured charge sessions")
     val recent = valid.takeLast(5)
     val capacity = recent.map { it.estimatedCapacityMah }.average()
-    val reference = referenceCapacityMah?.takeIf { it > 0.0 }
-    val health = reference?.let { (capacity / it * 100.0).coerceIn(0.0, 120.0) }
-    return HealthEstimate(capacity, health, healthConfidence(recent.size), recent.size, "Rolling average of the last ${recent.size} usable sessions")
+    val health = referenceCapacityMah?.takeIf { it > 0.0 }?.let { (capacity / it * 100.0).coerceIn(0.0, 120.0) }
+    return HealthEstimate(capacity, health, healthConfidence(recent.size), recent.size, "Rolling average of measured sessions")
 }
 
 class MeasurementEngine(private val store: BatteryStore) {
@@ -132,21 +131,26 @@ class MeasurementEngine(private val store: BatteryStore) {
     }
 
     private fun autoCalibrate(snapshot: BatterySnapshot) {
+        if (!snapshot.charging) return
         val counter = snapshot.counterMicroAh ?: run { calibrationCounter = null; calibrationTimestamp = 0L; return }
         val previousCounter = calibrationCounter
         val previousTimestamp = calibrationTimestamp
-        calibrationCounter = counter; calibrationTimestamp = snapshot.timestamp
+        calibrationCounter = counter
+        calibrationTimestamp = snapshot.timestamp
         if (previousCounter == null || previousTimestamp <= 0L) return
         val elapsedMs = snapshot.timestamp - previousTimestamp
         if (elapsedMs !in 20_000L..180_000L) return
-        val observedMa = abs((counter - previousCounter) / (elapsedMs / 3_600_000.0) / 1000.0)
+        val deltaMicroAh = counter - previousCounter
+        if (deltaMicroAh <= 0L) return
+        val observedMa = deltaMicroAh / (elapsedMs / 3_600_000.0) / 1000.0
         val rawMa = abs(snapshot.rawCurrentMa ?: return)
-        if (counter == previousCounter || observedMa < CURRENT_CALIBRATION_MIN_MA || rawMa < 0.5) return
+        if (observedMa < CURRENT_CALIBRATION_MIN_MA || rawMa < 0.5) return
         val ratio = observedMa / rawMa
         if (!ratio.isFinite() || ratio !in 0.25..CURRENT_CALIBRATION_MAX_RATIO) return
         val previousScale = store.autoCurrentScale()
-        val smoothing = when { ratio / previousScale in 0.8..1.25 -> 0.35; ratio / previousScale in 0.5..2.0 -> 0.25; else -> 0.15 }
-        store.setAutoCurrentScale((previousScale * (1.0 - smoothing) + ratio * smoothing).coerceIn(0.25, 1000.0))
+        val relative = ratio / previousScale
+        val smoothing = when { relative in 0.8..1.25 -> 0.35; relative in 0.5..2.0 -> 0.25; else -> 0.10 }
+        store.setAutoCurrentScale((previousScale * (1.0 - smoothing) + ratio * smoothing).coerceIn(0.25, 100.0))
     }
 
     private fun finishSession(snapshot: BatterySnapshot) {
@@ -154,9 +158,9 @@ class MeasurementEngine(private val store: BatteryStore) {
         val end = snapshot.level.coerceAtLeast(start)
         val delta = end - start
         val capacity = calculateCapacityMah(sessionMah, delta)
-        if (delta >= 60 && capacity != null && capacity > 0.0) {
-            val reference = store.referenceCapacityMah()
-            val wear = if (reference != null) (sessionMah / reference).coerceIn(0.0, 2.0) else 0.0
+        if (delta >= 60 && capacity != null && capacity in 1000.0..20_000.0) {
+            val reference = store.referenceCapacityMah() ?: capacity
+            val wear = (sessionMah / reference).coerceIn(0.0, 2.0)
             val efficiency = if (wear > 0.0) (delta / (wear * 100.0) * 100.0).coerceIn(0.0, 120.0) else 0.0
             store.addSession(ChargeSession(sessionStartTime ?: snapshot.timestamp, snapshot.timestamp, start, end, sessionMah, capacity, sessionPeakVoltage, wear, efficiency))
             store.learnReferenceCapacity(capacity)
