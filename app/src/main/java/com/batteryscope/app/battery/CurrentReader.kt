@@ -14,12 +14,12 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
             readSysfsRaw()?.let { add(it) }
         }
 
-        val readings = rawCandidates.mapNotNull(::normalizeCandidates).flatten()
+        val readings = rawCandidates.flatMap(::normalizeCandidates)
         if (readings.isEmpty()) return null
 
-        val selected = readings.minWithOrNull(compareBy<Candidate> {
-            score(it)
-        }?.thenBy { it.correctionPenalty } ?: compareBy { it.correctionPenalty })?.amps
+        val selected = readings.minWithOrNull(
+            compareBy<Candidate>({ score(it) }, { it.correctionPenalty })
+        )?.amps
 
         if (selected != null && selected.isFinite()) {
             lastAmps = selected
@@ -53,8 +53,6 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
     /**
      * Try common raw units first. When the normal interpretation is near
      * zero, also test correction factors such as 0.5x, 1x, 2x and 1000x.
-     * This handles devices that expose a battery-current sensor in a vendor
-     * specific scale while keeping the reported value in a realistic range.
      */
     private fun normalizeCandidates(raw: Double): List<Candidate> {
         val magnitude = abs(raw)
@@ -90,7 +88,7 @@ class CurrentReader(private val batteryManager: BatteryManager?) {
             amps < 0.05 -> 3.0
             else -> 3.0 + (amps - 5.0)
         }
-        return continuity + usefulRangePenalty + candidate.correctionPenalty * 0.05
+        return continuity + usefulRangePenalty
     }
 
     companion object {
