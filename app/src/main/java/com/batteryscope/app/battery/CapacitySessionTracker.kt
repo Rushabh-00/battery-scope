@@ -25,10 +25,6 @@ class CapacitySessionTracker(context: Context) {
     data class State(
         val fullChargeSessions: List<FullChargeSession>,
         val totals: FlowTotals,
-        val eligibleForFullMeasurement: Boolean,
-        val activeChargeMah: Double,
-        val activeChargeTimeMs: Long,
-        val activeChargeStartLevelPercent: Int?,
     )
 
     private val prefs = context.applicationContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
@@ -107,13 +103,9 @@ class CapacitySessionTracker(context: Context) {
         return state()
     }
 
-    fun state(): State = State(
+    private fun state(): State = State(
         fullChargeSessions = sessions.toList(),
         totals = FlowTotals(chargeMah, dischargeMah, chargeTimeMs, dischargeTimeMs),
-        eligibleForFullMeasurement = armedForFullCharge,
-        activeChargeMah = activeChargeMah,
-        activeChargeTimeMs = activeChargeDurationMs,
-        activeChargeStartLevelPercent = activeChargeStartLevelPercent.takeIf { it >= 0 },
     )
 
     fun latestEstimatedCapacityMah(): Double? = sessions.lastOrNull()?.estimatedCapacityMah
