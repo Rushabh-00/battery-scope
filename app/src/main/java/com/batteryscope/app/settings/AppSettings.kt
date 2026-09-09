@@ -22,6 +22,11 @@ class AppSettings(context: Context) {
         get() = ThemeMode.fromValue(preferences.getString(KEY_THEME, ThemeMode.AUTO.value))
         set(value) = preferences.edit().putString(KEY_THEME, value.value).apply()
 
+    /** True by default: charging current is positive, discharge current negative. */
+    var invertChargingPolarity: Boolean
+        get() = preferences.getBoolean(KEY_INVERT_CHARGING_POLARITY, true)
+        set(value) = preferences.edit().putBoolean(KEY_INVERT_CHARGING_POLARITY, value).apply()
+
     enum class CurrentUnit(val value: String) {
         AMPERE("A"),
         MILLIAMPERE("mA");
@@ -65,5 +70,6 @@ class AppSettings(context: Context) {
         const val KEY_CHARGE_UNIT = "charge_unit"
         const val KEY_TEMPERATURE_UNIT = "temperature_unit"
         const val KEY_THEME = "theme"
+        const val KEY_INVERT_CHARGING_POLARITY = "invert_charging_polarity"
     }
 }
