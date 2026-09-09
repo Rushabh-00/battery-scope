@@ -16,15 +16,19 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -32,7 +36,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.0.0'
+          gradle-version: '9.1.0'
 
       - name: Build debug APK
         run: gradle assembleDebug
@@ -52,6 +56,17 @@ jobs:
           name: BatteryScope-release
           path: app/build/outputs/apk/release/*.apk
 
+      - name: Publish automatic test release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.2.0-build.${{ github.run_number }}
+          name: BatteryScope 0.2.0 test build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          generate_release_notes: true
+          files: app/build/outputs/apk/debug/*.apk
+
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -63,9 +78,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.publish_test_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-test
-          name: BatteryScope 0.2.0 Test
+          tag_name: v0.2.0-manual.${{ github.run_number }}
+          name: BatteryScope 0.2.0 manual test build ${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/debug/*.apk
