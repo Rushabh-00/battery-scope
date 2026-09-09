@@ -97,8 +97,8 @@ class MainActivity : android.app.Activity() {
         }
 
         val rendered = listOf(
-            b.powerW?.let { "${format2(it)} W" } ?: "Unavailable",
-            b.currentA?.let { "${format2(it)} A" } ?: "Unavailable",
+            b.powerW?.let { "${format1(it)} W" } ?: "Unavailable",
+            b.currentA?.let { "${format1(it)} A" } ?: "Unavailable",
             b.voltageV?.let { "${format1(it)} V" } ?: "Unavailable",
             temp,
             energy,
