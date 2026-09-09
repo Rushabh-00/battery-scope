@@ -6,7 +6,7 @@ import kotlin.math.abs
 
 class CurrentReader(
     private val batteryManager: BatteryManager?,
-    private val invertChargingPolarity: Boolean,
+    var invertChargingPolarity: Boolean,
 ) {
     fun readAmps(): Double? {
         val candidates = ArrayList<Candidate>()
