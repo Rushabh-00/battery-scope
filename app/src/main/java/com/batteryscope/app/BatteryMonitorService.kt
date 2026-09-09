@@ -20,13 +20,17 @@ class BatteryMonitorService : Service() {
     private lateinit var engine: MeasurementEngine
     private val handler = Handler(Looper.getMainLooper())
     private val recent = ArrayDeque<BatterySnapshot>()
+    private var lastAlarmLevel = -1
+    private var lastAlarmTemp = -1.0
 
     private val monitor = object : Runnable {
         override fun run() {
             val battery = readBattery(this@BatteryMonitorService)
             addRecent(battery)
             engine.observe(battery)
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(battery))
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID, buildNotification(battery))
+            maybeAlarm(battery)
             handler.postDelayed(this, store.settings().updateIntervalSeconds * 1000L)
         }
     }
@@ -44,12 +48,7 @@ class BatteryMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
-
-    override fun onDestroy() {
-        handler.removeCallbacks(monitor)
-        super.onDestroy()
-    }
-
+    override fun onDestroy() { handler.removeCallbacks(monitor); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun addRecent(snapshot: BatterySnapshot) {
@@ -76,8 +75,12 @@ class BatteryMonitorService : Service() {
         }
     }
 
-    private fun formatPower(w: Double): String {
-        return if (abs(w) < 0.1) String.format(Locale.US, "%.3f W", w) else String.format(Locale.US, "%.2f W", w)
+    private fun formatPower(w: Double, scalar: Float): String {
+        val value = w * scalar
+        return when {
+            abs(value) < 0.1 -> String.format(Locale.US, "%.3f W", value)
+            else -> String.format(Locale.US, "%.2f W", value)
+        }
     }
 
     private fun formatDuration(ms: Long): String {
@@ -91,46 +94,40 @@ class BatteryMonitorService : Service() {
         val settings = store.settings()
         val average = averageCurrent()
         val interactive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-        val remaining = battery.counterMicroAh?.div(1000.0)
+        val remainingMah = battery.counterMicroAh?.div(1000.0)
         val energyWh = battery.energyCounterNWh?.div(1_000_000_000.0)
         val temp = if (settings.temperatureF) battery.temperatureC * 9.0 / 5.0 + 32.0 else battery.temperatureC
         val tempUnit = if (settings.temperatureF) "°F" else "°C"
+        val entries = settings.notificationEntries
 
         val compact = buildString {
             append(if (battery.charging) "Charging" else "Discharging")
-            append(" • ${battery.level}%")
-            if (settings.showCurrent) battery.currentMa?.let { append(" • ${formatCurrent(it, settings.currentUnit)}") }
-            if (settings.showPower) battery.powerW?.let { append(" • ${formatPower(it)}") }
+            if ("%" in entries) append(" • ${battery.level}%")
+            if ("A" in entries) battery.currentMa?.let { append(" • ${formatCurrent(it, settings.currentUnit)}") }
+            if ("W" in entries) battery.powerW?.let { append(" • ${formatPower(it, settings.powerScalar)}") }
+            if ("°C" in entries) append(" • ${String.format(Locale.US, "%.1f%s", temp, tempUnit)}")
+            if ("V" in entries) append(" • ${String.format(Locale.US, "%.3f V", battery.voltageV)}")
         }
 
         val detail = buildString {
-            append("Now: ${battery.currentMa?.let { formatCurrent(it, settings.currentUnit) } ?: "Unavailable"}")
-            if (settings.showPower) battery.powerW?.let { append(" • ${formatPower(it)}") }
-            append("\nAvg: ${average?.let { formatCurrent(it, settings.currentUnit) } ?: "Unavailable"}")
-            append("\nScreen: ${if (interactive) "on" else "off"}")
-            if (settings.showVoltage) append("\nVoltage: ${String.format(Locale.US, "%.3f V", battery.voltageV)}")
-            if (settings.showTemperature) append("\nTemperature: ${String.format(Locale.US, "%.1f%s", temp, tempUnit)}")
-            if (settings.showRemainingCharge && remaining != null) {
-                append("\nRemaining charge: ")
-                append(if (settings.chargeUnit == "Ah") String.format(Locale.US, "%.3f Ah", remaining / 1000.0) else String.format(Locale.US, "%.0f mAh", remaining))
-            }
-            if (settings.showEnergy && energyWh != null) {
-                append("\nEnergy: ")
-                append(if (settings.energyUnit == "kWh") String.format(Locale.US, "%.3f kWh", energyWh / 1000.0) else String.format(Locale.US, "%.2f Wh", energyWh))
-            }
-            if (battery.charging && settings.showChargeTime && battery.chargeTimeRemainingMs != null) {
-                append("\nFull in: ${formatDuration(battery.chargeTimeRemainingMs)}")
-            }
+            if ("A" in entries) append("Now: ${battery.currentMa?.let { formatCurrent(it, settings.currentUnit) } ?: "Unavailable"}")
+            if ("W" in entries) battery.powerW?.let { if (isNotEmpty()) append(" • "); append(formatPower(it, settings.powerScalar)) }
+            if ("A" in entries) average?.let { append("\nAvg: ${formatCurrent(it, settings.currentUnit)}") }
+            if (settings.showScreenState) append("\nScreen: ${if (interactive) "on" else "off"}")
+            if ("V" in entries) append("\nVoltage: ${String.format(Locale.US, "%.3f V", battery.voltageV)}")
+            if ("°C" in entries) append("\nTemperature: ${String.format(Locale.US, "%.1f%s", temp, tempUnit)}")
+            if ("Ah" in entries && remainingMah != null) append("\nRemaining charge: ${formatCharge(remainingMah, settings.chargeUnit)}")
+            if ("Wh" in entries && energyWh != null) append("\nEnergy: ${String.format(Locale.US, "%.2f Wh", energyWh)}")
+            if (battery.charging && settings.showChargeTime && battery.chargeTimeRemainingMs != null) append("\nFull in: ${formatDuration(battery.chargeTimeRemainingMs)}")
         }
 
         val openIntent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP }
         val pendingIntent = PendingIntent.getActivity(this, 7002, openIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
             .setContentTitle("BatteryScope • ${battery.level}%")
-            .setContentText(compact)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setContentText(compact.ifEmpty { "Battery telemetry" })
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail.ifEmpty { compact }))
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -139,8 +136,39 @@ class BatteryMonitorService : Service() {
             .build()
     }
 
+    private fun formatCharge(mah: Double, unit: String): String = if (unit == "Ah") String.format(Locale.US, "%.3f Ah", mah / 1000.0) else String.format(Locale.US, "%.0f mAh", mah)
+
+    private fun maybeAlarm(battery: BatterySnapshot) {
+        val settings = store.settings()
+        val manager = getSystemService(NotificationManager::class.java)
+        if (settings.lowBatteryAlarm && battery.level <= 15 && lastAlarmLevel != battery.level) {
+            manager.notify(LOW_ALARM_ID, alarm("Low battery", "Battery is at ${battery.level}%"))
+            lastAlarmLevel = battery.level
+        }
+        if (settings.fullBatteryAlarm && battery.status == "Full" && lastAlarmLevel != 100) {
+            manager.notify(FULL_ALARM_ID, alarm("Battery full", "Battery reached full charge"))
+            lastAlarmLevel = 100
+        }
+        if (settings.temperatureAlarm && battery.temperatureC >= 45.0 && lastAlarmTemp < 45.0) {
+            manager.notify(TEMP_ALARM_ID, alarm("High battery temperature", String.format(Locale.US, "Battery temperature is %.1f°C", battery.temperatureC)))
+        }
+        lastAlarmTemp = battery.temperatureC
+    }
+
+    private fun alarm(title: String, text: String): Notification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.ic_dialog_alert)
+        .setContentTitle(title)
+        .setContentText(text)
+        .setAutoCancel(true)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .build()
+
     companion object {
         const val CHANNEL_ID = "battery_monitor"
+        const val ALARM_CHANNEL_ID = "battery_alerts"
         const val NOTIFICATION_ID = 7001
+        const val LOW_ALARM_ID = 7003
+        const val FULL_ALARM_ID = 7004
+        const val TEMP_ALARM_ID = 7005
     }
 }
