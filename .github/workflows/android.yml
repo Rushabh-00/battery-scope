@@ -81,9 +81,8 @@ jobs:
           test -x "$zipalign_bin"
           test -x "$apksigner_bin"
           test -x "$keytool_bin"
-          echo "Checking keystore alias and credentials..."
+          echo "Checking keystore and requested alias..."
           "$keytool_bin" -list -v -keystore "$keystore" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
-          "$keytool_bin" -keypasswd -keystore "$keystore" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -keypass "$ANDROID_KEY_PASSWORD" -new "$ANDROID_KEY_PASSWORD" >/dev/null
           "$zipalign_bin" -P 16 -f 4 "$unsigned" "$aligned"
           "$apksigner_bin" sign \
             --ks "$keystore" \
