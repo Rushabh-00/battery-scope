@@ -118,14 +118,6 @@ fun readBattery(context: Context): BatterySnapshot {
     )
 }
 
-fun classifyTemperature(temp: Double): String = when {
-    temp >= 45.0 -> "Very hot"
-    temp >= 42.0 -> "Hot"
-    temp >= 38.0 -> "Warm"
-    temp >= 30.0 -> "Normal"
-    else -> "Cool"
-}
-
 fun healthConfidence(sessionCount: Int): Int = when {
     sessionCount <= 0 -> 0
     sessionCount == 1 -> 20
