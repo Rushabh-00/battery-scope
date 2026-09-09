@@ -121,7 +121,7 @@ class MainActivity : android.app.Activity() {
             energy,
             "${b.levelPercent}%",
             if (b.charging) "Yes" else "No",
-            "Unavailable",
+            b.batteryCapacityMah?.let { "${format0(it)} mAh" } ?: "Unavailable",
             b.remainingMah?.let { "${format0(it)} mAh" } ?: "Unavailable",
             b.estimatedCapacityMah?.let { "${format0(it)} mAh" } ?: "Learning / unavailable",
             "${format0(tracker.chargedMah())} mAh",
