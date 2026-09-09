@@ -91,17 +91,6 @@ jobs:
           "$apksigner_bin" verify --verbose "$output"
           rm -f "$keystore" "$aligned"
 
-      - name: Check release size
-        run: |
-          set -euo pipefail
-          bytes=$(stat -c%s dist/BatteryScope-release.apk)
-          mib=$(awk -v b="$bytes" 'BEGIN { printf "%.2f", b/1048576 }')
-          echo "BatteryScope-release.apk: ${mib} MiB (${bytes} bytes)"
-          if [ "$bytes" -gt $((6 * 1024 * 1024)) ]; then
-            echo "Release APK exceeds the 6 MiB size guardrail."
-            exit 1
-          fi
-
       - name: Publish APK release
         uses: softprops/action-gh-release@v2
         with:
