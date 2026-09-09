@@ -61,11 +61,8 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Assemble debug APK
-        run: gradle assembleDebug --stacktrace
-
-      - name: Assemble release APK
-        run: gradle assembleRelease --stacktrace
+      - name: Assemble debug and release APKs
+        run: gradle assembleDebug assembleRelease --build-cache --stacktrace
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
@@ -120,7 +117,7 @@ jobs:
           gradle-version: '9.6.0'
 
       - name: Run unit tests
-        run: gradle test --stacktrace
+        run: gradle test --build-cache --stacktrace
 
   publish:
     name: 5 • Publish test release
