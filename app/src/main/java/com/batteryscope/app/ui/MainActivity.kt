@@ -178,7 +178,7 @@ private fun Hero(battery: BatterySnapshot, settings: AppSettings) {
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        battery.remainingMah?.let { "${f3(it / 1000)} Ah" } ?: "—",
+                        battery.remainingMah?.let { "${f2(it / 1000)} Ah" } ?: "—",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -522,4 +522,3 @@ private fun date(ms: Long) = DateFormat.getDateTimeInstance(DateFormat.SHORT, Da
 private fun f0(v: Double) = String.format(Locale.US, "%.0f", v)
 private fun f1(v: Double) = String.format(Locale.US, "%.1f", v)
 private fun f2(v: Double) = String.format(Locale.US, "%.2f", v)
-private fun f3(v: Double) = String.format(Locale.US, "%.3f", v)
