@@ -77,7 +77,7 @@ jobs:
           if-no-files-found: error
 
   quality:
-    name: 3 • Quality & verify
+    name: 3 • Quality checks
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -98,21 +98,29 @@ jobs:
       - name: Run unit tests
         run: gradle test --stacktrace
 
+  verify:
+    name: 4 • Verify APKs
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
       - name: Download APKs
         uses: actions/download-artifact@v4
         with:
           name: BatteryScope-APKs
           path: dist
 
-      - name: Verify APKs
+      - name: Verify APK files
         run: |
           echo "Built APK files:"
           find dist -name '*.apk' -type f -print
           test -n "$(find dist -name '*.apk' -type f -print -quit)"
+          test -n "$(find dist -path '*/debug/*.apk' -type f -print -quit)"
+          test -n "$(find dist -path '*/release/*.apk' -type f -print -quit)"
 
-  package:
-    name: 4 • Package
-    needs: quality
+  publish:
+    name: 5 • Publish test release
+    needs: [quality, verify]
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_test_release)
     runs-on: ubuntu-latest
     steps:
       - name: Download APKs
@@ -123,9 +131,9 @@ jobs:
 
       - name: Create checksums
         run: |
-          sha256sum dist/**/*.apk | tee SHA256SUMS.txt
+          find dist -name '*.apk' -type f -print0 | xargs -0 sha256sum | tee SHA256SUMS.txt
 
-      - name: Upload final package
+      - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:
           name: BatteryScope-final
@@ -133,18 +141,6 @@ jobs:
             dist/**/*.apk
             SHA256SUMS.txt
           if-no-files-found: error
-
-  publish:
-    name: 5 • Publish test release
-    needs: package
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_test_release)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download final package
-        uses: actions/download-artifact@v4
-        with:
-          name: BatteryScope-final
-          path: dist
 
       - name: Publish automatic test release from main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -155,14 +151,14 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: dist/**/*.apk
+          files: dist/debug/*.apk
 
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: dist/**/*.apk
+          files: dist/release/*.apk
 
       - name: Publish manual test release
         if: github.event_name == 'workflow_dispatch' && inputs.publish_test_release
@@ -173,4 +169,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: dist/**/*.apk
+          files: dist/debug/*.apk
