@@ -1,5 +1,8 @@
 package com.batteryscope.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.batteryscope.app.battery.BatteryNotificationService
 import com.batteryscope.app.battery.BatteryReader
 import com.batteryscope.app.battery.BatterySessionAnalyzer
 import com.batteryscope.app.battery.BatterySnapshot
@@ -59,6 +63,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ensureNotificationPermission()
+        if (AppSettings(this).notificationEnabled) {
+            BatteryNotificationService.start(this)
+        }
         setContent {
             val context = LocalContext.current
             val uiPrefs = remember(context) { UiPreferences(context) }
@@ -72,6 +80,18 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
+        }
+    }
+
+    companion object {
+        private const val NOTIFICATION_PERMISSION_REQUEST = 2001
     }
 }
 
@@ -289,6 +309,7 @@ private fun SettingsScreen(
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
     var tempUnit by remember { mutableStateOf(settings.temperatureUnit) }
     var invert by remember { mutableStateOf(settings.invertChargingPolarity) }
+    var notificationEnabled by remember { mutableStateOf(settings.notificationEnabled) }
     var updateIntervalMs by remember { mutableStateOf(settings.updateIntervalMs) }
     var capacity by remember { mutableStateOf(CapacityPreferences(context).designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
@@ -440,8 +461,53 @@ private fun SettingsScreen(
                         }
                     }
                 }
+                item {
+                    Section("Notification") {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text("Live battery notification", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "Keeps battery percentage, state, power, current, voltage, and temperature visible while monitoring is enabled.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = notificationEnabled,
+                                onCheckedChange = { enabled ->
+                                    notificationEnabled = enabled
+                                    settings.notificationEnabled = enabled
+                                    if (enabled) {
+                                        if (context is MainActivity) context.ensureNotificationPermissionForSettings()
+                                        BatteryNotificationService.start(context)
+                                    } else {
+                                        BatteryNotificationService.stop(context)
+                                    }
+                                },
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "The notification refreshes about every 5 seconds and uses a low-importance channel so it stays quiet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
+    }
+}
+
+private fun MainActivity.ensureNotificationPermissionForSettings() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2001)
     }
 }
 
