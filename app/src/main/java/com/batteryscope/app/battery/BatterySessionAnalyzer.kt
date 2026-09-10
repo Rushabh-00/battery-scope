@@ -18,17 +18,10 @@ class BatterySessionAnalyzer(context: Context) {
     private val tracker = CapacitySessionTracker(context)
 
     fun learnedCapacityMah(): Double? = tracker.learnedCapacityMah()
+    fun persistedTotals(): CapacitySessionTracker.FlowTotals = tracker.currentTotals()
 
     fun update(snapshot: BatterySnapshot, nowMs: Long = System.currentTimeMillis()): Analysis {
-        val state = tracker.update(
-            nowMs = nowMs,
-            levelPercent = snapshot.levelPercent,
-            charging = snapshot.charging,
-            remainingMah = snapshot.remainingMah,
-            currentA = snapshot.currentA,
-            full = snapshot.full,
-        )
-
+        val state = tracker.update(nowMs, snapshot.levelPercent, snapshot.charging, snapshot.remainingMah, snapshot.currentA, snapshot.full)
         val health = BatteryHealthCalculator.calculate(
             designCapacityMah = snapshot.batteryCapacityMah,
             fullChargeCapacitiesMah = state.fullChargeSessions.map { it.estimatedCapacityMah },
