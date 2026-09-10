@@ -18,12 +18,10 @@ class AppSettings(context: Context) {
         get() = ThemeMode.fromValue(preferences.getString(KEY_THEME, ThemeMode.AUTO.value))
         set(value) = preferences.edit().putString(KEY_THEME, value.value).apply()
 
-    /** True by default: charging current is positive, discharge current negative. */
     var invertChargingPolarity: Boolean
         get() = preferences.getBoolean(KEY_INVERT_CHARGING_POLARITY, true)
         set(value) = preferences.edit().putBoolean(KEY_INVERT_CHARGING_POLARITY, value).apply()
 
-    /** Shows the live BatteryScope notification and keeps telemetry available in the background. */
     var notificationEnabled: Boolean
         get() = preferences.getBoolean(KEY_NOTIFICATION_ENABLED, true)
         set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_ENABLED, value).apply()
@@ -32,6 +30,7 @@ class AppSettings(context: Context) {
         get() = NotificationIcon.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, NotificationIcon.BATTERY.value))
         set(value) = preferences.edit().putString(KEY_NOTIFICATION_ICON, value.value).apply()
 
+    /** Optional telemetry lines. Battery level and flow are always shown. */
     var notificationEntries: Set<NotificationEntry>
         get() {
             val stored = preferences.getStringSet(KEY_NOTIFICATION_ENTRIES, null)
@@ -40,63 +39,43 @@ class AppSettings(context: Context) {
         }
         set(value) = preferences.edit().putStringSet(KEY_NOTIFICATION_ENTRIES, value.map { it.value }.toSet()).apply()
 
-    /** Live telemetry refresh interval in milliseconds. */
     var updateIntervalMs: Long
         get() = preferences.getLong(KEY_UPDATE_INTERVAL_MS, DEFAULT_UPDATE_INTERVAL_MS)
             .coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS)
-        set(value) = preferences.edit()
-            .putLong(KEY_UPDATE_INTERVAL_MS, value.coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS))
-            .apply()
+        set(value) = preferences.edit().putLong(KEY_UPDATE_INTERVAL_MS, value.coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS)).apply()
 
     enum class CurrentUnit(val value: String) {
         AMPERE("A"),
         MILLIAMPERE("mA");
-
-        companion object {
-            fun fromValue(value: String?): CurrentUnit = entries.firstOrNull { it.value == value } ?: AMPERE
-        }
+        companion object { fun fromValue(value: String?): CurrentUnit = entries.firstOrNull { it.value == value } ?: AMPERE }
     }
 
     enum class TemperatureUnit(val value: String) {
         CELSIUS("°C"),
         FAHRENHEIT("°F");
-
-        companion object {
-            fun fromValue(value: String?): TemperatureUnit = entries.firstOrNull { it.value == value } ?: CELSIUS
-        }
+        companion object { fun fromValue(value: String?): TemperatureUnit = entries.firstOrNull { it.value == value } ?: CELSIUS }
     }
 
     enum class ThemeMode(val value: String) {
         AUTO("Auto"),
         LIGHT("Light"),
         DARK("Dark");
-
-        companion object {
-            fun fromValue(value: String?): ThemeMode = entries.firstOrNull { it.value == value } ?: AUTO
-        }
+        companion object { fun fromValue(value: String?): ThemeMode = entries.firstOrNull { it.value == value } ?: AUTO }
     }
 
     enum class NotificationIcon(val value: String) {
         BATTERY("Battery"),
         BOLT("Bolt"),
         GAUGE("Gauge");
-
-        companion object {
-            fun fromValue(value: String?): NotificationIcon = entries.firstOrNull { it.value == value } ?: BATTERY
-        }
+        companion object { fun fromValue(value: String?): NotificationIcon = entries.firstOrNull { it.value == value } ?: BATTERY }
     }
 
     enum class NotificationEntry(val value: String) {
-        BATTERY_LEVEL("Battery level"),
         POWER("Power"),
         CURRENT("Current"),
         VOLTAGE("Voltage"),
-        TEMPERATURE("Temperature"),
-        CHARGE_TIME("Charge time");
-
-        companion object {
-            fun fromValue(value: String): NotificationEntry? = entries.firstOrNull { it.value == value }
-        }
+        TEMPERATURE("Temperature");
+        companion object { fun fromValue(value: String): NotificationEntry? = entries.firstOrNull { it.value == value } }
     }
 
     private companion object {
