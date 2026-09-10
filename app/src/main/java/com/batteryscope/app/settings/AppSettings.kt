@@ -33,10 +33,11 @@ class AppSettings(context: Context) {
         set(value) = preferences.edit().putString(KEY_NOTIFICATION_ICON, value.value).apply()
 
     var notificationEntries: Set<NotificationEntry>
-        get() = preferences.getStringSet(KEY_NOTIFICATION_ENTRIES, null)
-            ?.mapNotNullTo(mutableSetOf()) { NotificationEntry.fromValue(it) }
-            ?.takeIf { it.isNotEmpty() }
-            ?: NotificationEntry.entries.toSet()
+        get() {
+            val stored = preferences.getStringSet(KEY_NOTIFICATION_ENTRIES, null)
+            if (stored == null) return NotificationEntry.entries.toSet()
+            return stored.mapNotNullTo(mutableSetOf()) { NotificationEntry.fromValue(it) }
+        }
         set(value) = preferences.edit().putStringSet(KEY_NOTIFICATION_ENTRIES, value.map { it.value }.toSet()).apply()
 
     /** Live telemetry refresh interval in milliseconds. */
