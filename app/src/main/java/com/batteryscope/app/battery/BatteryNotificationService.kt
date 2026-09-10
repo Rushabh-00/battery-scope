@@ -63,7 +63,7 @@ class BatteryNotificationService : Service() {
             stopSelf()
             return
         }
-        val snapshot = runCatching { reader.read() }.getOrNull()
+        val snapshot = runCatching { reader.read(trackSession = false) }.getOrNull()
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(snapshot))
     }
 
