@@ -28,6 +28,17 @@ class AppSettings(context: Context) {
         get() = preferences.getBoolean(KEY_NOTIFICATION_ENABLED, true)
         set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_ENABLED, value).apply()
 
+    var notificationIcon: NotificationIcon
+        get() = NotificationIcon.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, NotificationIcon.BATTERY.value))
+        set(value) = preferences.edit().putString(KEY_NOTIFICATION_ICON, value.value).apply()
+
+    var notificationEntries: Set<NotificationEntry>
+        get() = preferences.getStringSet(KEY_NOTIFICATION_ENTRIES, null)
+            ?.mapNotNullTo(mutableSetOf()) { NotificationEntry.fromValue(it) }
+            ?.takeIf { it.isNotEmpty() }
+            ?: NotificationEntry.entries.toSet()
+        set(value) = preferences.edit().putStringSet(KEY_NOTIFICATION_ENTRIES, value.map { it.value }.toSet()).apply()
+
     /** Live telemetry refresh interval in milliseconds. */
     var updateIntervalMs: Long
         get() = preferences.getLong(KEY_UPDATE_INTERVAL_MS, DEFAULT_UPDATE_INTERVAL_MS)
@@ -64,6 +75,29 @@ class AppSettings(context: Context) {
         }
     }
 
+    enum class NotificationIcon(val value: String) {
+        BATTERY("Battery"),
+        BOLT("Bolt"),
+        GAUGE("Gauge");
+
+        companion object {
+            fun fromValue(value: String?): NotificationIcon = entries.firstOrNull { it.value == value } ?: BATTERY
+        }
+    }
+
+    enum class NotificationEntry(val value: String) {
+        BATTERY_LEVEL("Battery level"),
+        POWER("Power"),
+        CURRENT("Current"),
+        VOLTAGE("Voltage"),
+        TEMPERATURE("Temperature"),
+        CHARGE_TIME("Charge time");
+
+        companion object {
+            fun fromValue(value: String): NotificationEntry? = entries.firstOrNull { it.value == value }
+        }
+    }
+
     private companion object {
         const val FILE_NAME = "battery_scope_settings"
         const val KEY_CURRENT_UNIT = "current_unit"
@@ -71,6 +105,8 @@ class AppSettings(context: Context) {
         const val KEY_THEME = "theme"
         const val KEY_INVERT_CHARGING_POLARITY = "invert_charging_polarity"
         const val KEY_NOTIFICATION_ENABLED = "notification_enabled"
+        const val KEY_NOTIFICATION_ICON = "notification_icon"
+        const val KEY_NOTIFICATION_ENTRIES = "notification_entries"
         const val KEY_UPDATE_INTERVAL_MS = "update_interval_ms"
         const val MIN_UPDATE_INTERVAL_MS = 1_250L
         const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
