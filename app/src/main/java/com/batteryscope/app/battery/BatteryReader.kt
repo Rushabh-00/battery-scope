@@ -84,9 +84,7 @@ class BatteryReader(context: Context) {
         currentA: Double?,
         capacityMah: Double?,
     ): Long? {
-        if (!charging || currentA == null) return null
-        val rateMahPerHour = abs(currentA) * 1000.0
-        if (!rateMahPerHour.isFinite() || rateMahPerHour < 10.0) return null
+        if (!charging) return null
 
         val targetMah = capacityMah?.takeIf { it in 100.0..30_000.0 }
         val neededMah = when {
@@ -95,7 +93,12 @@ class BatteryReader(context: Context) {
             else -> null
         }?.coerceAtLeast(0.0)
 
-        if (neededMah == null || neededMah <= 0.0) return if (levelPercent >= 100) 0L else null
+        if (levelPercent >= 100 || neededMah == 0.0) return 0L
+
+        val rateMahPerHour = abs(currentA ?: 0.0) * 1000.0
+        if (!rateMahPerHour.isFinite() || rateMahPerHour < 10.0) return null
+        if (neededMah == null || neededMah <= 0.0) return null
+
         return (neededMah / rateMahPerHour * 3_600_000.0)
             .takeIf { it.isFinite() && it >= 0.0 }
             ?.toLong()
