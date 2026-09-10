@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
@@ -221,6 +222,19 @@ private fun Hero(battery: BatterySnapshot, settings: AppSettings) {
                 Mini("Voltage", battery.voltageV?.let { "${f1(it)} V" } ?: "—")
                 Mini("Temp", battery.temperatureC?.let { tempText(it, settings.temperatureUnit) } ?: "—")
             }
+            if (battery.charging) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Charge time",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    battery.chargeTimeRemainingMs?.let(::durationEstimate) ?: "Estimating…",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
@@ -250,6 +264,9 @@ private fun CapacityHealthCard(
             Stat("Estimated capacity", analysis.learnedCapacityMah?.let { "${f0(it)} mAh" } ?: "Awaiting completed session")
             Stat("Charge", "${f0(analysis.chargeMah)} mAh • ${duration(analysis.chargeTimeMs)}")
             Stat("Discharge", "${f0(analysis.dischargeMah)} mAh • ${duration(analysis.dischargeTimeMs)}")
+            if (battery.charging) {
+                Stat("Time to full", battery.chargeTimeRemainingMs?.let(::durationEstimate) ?: "Estimating…")
+            }
 
             Spacer(Modifier.height(12.dp))
             HorizontalDivider()
@@ -305,11 +322,14 @@ private fun SettingsScreen(
     settings: AppSettings,
     onBack: () -> Unit,
 ) {
+    BackHandler { onBack() }
     val context = LocalContext.current
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
     var tempUnit by remember { mutableStateOf(settings.temperatureUnit) }
     var invert by remember { mutableStateOf(settings.invertChargingPolarity) }
     var notificationEnabled by remember { mutableStateOf(settings.notificationEnabled) }
+    var notificationIcon by remember { mutableStateOf(settings.notificationIcon) }
+    var notificationEntries by remember { mutableStateOf(settings.notificationEntries) }
     var updateIntervalMs by remember { mutableStateOf(settings.updateIntervalMs) }
     var capacity by remember { mutableStateOf(CapacityPreferences(context).designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
@@ -322,13 +342,9 @@ private fun SettingsScreen(
                 contentPadding = PaddingValues(18.dp),
             ) {
                 item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = onBack) { Text("Back") }
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text("Customize BatteryScope", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    Column {
+                        Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text("Customize BatteryScope", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 item {
@@ -407,7 +423,7 @@ private fun SettingsScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "This design capacity is editable and is used only for health/wear. Learned capacity is never shown until a valid full-charge session completes.",
+                            "This design capacity is editable and is used only for health/wear and charge-time estimates. Learned capacity is never shown until a valid full-charge session completes.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -417,7 +433,7 @@ private fun SettingsScreen(
                     Section("Telemetry") {
                         Text("Update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                         Text(
-                            "How often BatteryScope refreshes live battery readings.",
+                            "The same interval drives the live screen and notification refresh rate.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -471,7 +487,7 @@ private fun SettingsScreen(
                             Column(Modifier.weight(1f).padding(end = 16.dp)) {
                                 Text("Live battery notification", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                                 Text(
-                                    "Keeps battery percentage, state, power, current, voltage, and temperature visible while monitoring is enabled.",
+                                    "Shows selected battery telemetry while monitoring is enabled.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -490,9 +506,49 @@ private fun SettingsScreen(
                                 },
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(12.dp))
+                        Choice(
+                            "Notification icon",
+                            AppSettings.NotificationIcon.entries.map { it.value },
+                            notificationIcon.value,
+                        ) {
+                            notificationIcon = AppSettings.NotificationIcon.fromValue(it)
+                            settings.notificationIcon = notificationIcon
+                            if (notificationEnabled) BatteryNotificationService.start(context)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text("Notification entries", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
                         Text(
-                            "The notification refreshes about every 5 seconds and uses a low-importance channel so it stays quiet.",
+                            "Choose which telemetry lines appear in the expanded notification.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        AppSettings.NotificationEntry.entries.chunked(2).forEach { rowEntries ->
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                rowEntries.forEach { entry ->
+                                    FilterChip(
+                                        selected = entry in notificationEntries,
+                                        onClick = {
+                                            notificationEntries = if (entry in notificationEntries) {
+                                                notificationEntries - entry
+                                            } else {
+                                                notificationEntries + entry
+                                            }
+                                            settings.notificationEntries = notificationEntries
+                                            if (notificationEnabled) BatteryNotificationService.start(context)
+                                        },
+                                        label = { Text(entry.value) },
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                        }
+                        Text(
+                            "The notification refreshes at the same interval as live telemetry.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -577,6 +633,18 @@ private fun duration(ms: Long): String {
     val h = mins / 60
     val m = mins % 60
     return if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
+private fun durationEstimate(ms: Long): String {
+    if (ms <= 0) return "Full"
+    val totalMinutes = ms / 60000L
+    val h = totalMinutes / 60L
+    val m = totalMinutes % 60L
+    return when {
+        h > 0 && m > 0 -> "${h}h ${m}m"
+        h > 0 -> "${h}h"
+        else -> "${m}m"
+    }
 }
 
 private fun formatInterval(ms: Long): String = when (ms) {
