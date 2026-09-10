@@ -1,9 +1,8 @@
 package com.batteryscope.app.ui
 
-import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.BackHandler
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -230,23 +229,13 @@ private fun SettingsScreen(theme: UiPreferences.Theme, colorMode: UiPreferences.
 
 @Composable private fun Section(title: String, content: @Composable Column.() -> Unit) = Card(shape = RoundedCornerShape(28.dp)) { Column(Modifier.fillMaxWidth().padding(22.dp)) { Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(14.dp)); content() } }
 
-@Composable private fun ChoiceRow(title: String, options: List<String>, selected: String, onSelected: (String) -> Unit) {
-    Text(title, style = MaterialTheme.typography.titleMedium); Spacer(Modifier.height(6.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        options.forEach { option -> val active = option == selected; Box(Modifier.weight(1f).clip(RoundedCornerShape(13.dp)).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp)).background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { onSelected(option) }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) { Text(option, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal) } }
-    }
-}
+@Composable private fun ChoiceRow(title: String, options: List<String>, selected: String, onSelected: (String) -> Unit) { Text(title, style = MaterialTheme.typography.titleMedium); Spacer(Modifier.height(6.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) { options.forEach { option -> val active = option == selected; Box(Modifier.weight(1f).clip(RoundedCornerShape(13.dp)).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp)).background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { onSelected(option) }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) { Text(option, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal) } } } }
 
 @Composable private fun SegmentedChoice(title: String, options: List<String>, selected: String, onSelected: (String) -> Unit) = ChoiceRow(title, options, selected, onSelected)
 
-@Composable private fun ThemeColorPalette(selected: Long, onSelected: (Long) -> Unit) {
-    val colors = longArrayOf(0xFFE97D7DL, 0xFFE78A45L, 0xFFD39A1FL, 0xFFA7A832L, 0xFF79B45EL, 0xFF3BAF8BL, 0xFF12AAB5L, 0xFF3AA7D0L, 0xFF6F9DDFL, 0xFF918BE0L, 0xFFB47BCFL, 0xFFD276A4L)
-    Column { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { colors.take(6).forEach { ColorDot(it, selected, onSelected) } }; Spacer(Modifier.height(9.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { colors.drop(6).forEach { ColorDot(it, selected, onSelected) } } }
-}
+@Composable private fun ThemeColorPalette(selected: Long, onSelected: (Long) -> Unit) { val colors = longArrayOf(0xFFE97D7DL, 0xFFE78A45L, 0xFFD39A1FL, 0xFFA7A832L, 0xFF79B45EL, 0xFF3BAF8BL, 0xFF12AAB5L, 0xFF3AA7D0L, 0xFF6F9DDFL, 0xFF918BE0L, 0xFFB47BCFL, 0xFFD276A4L); Column { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { colors.take(6).forEach { ColorDot(it, selected, onSelected) } }; Spacer(Modifier.height(9.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { colors.drop(6).forEach { ColorDot(it, selected, onSelected) } } } }
 
-@Composable private fun ColorDot(value: Long, selected: Long, onSelected: (Long) -> Unit) {
-    val color = Color(value.toInt())
-    Box(Modifier.size(40.dp).clip(CircleShape).background(color).border(if (value == selected) 3.dp else 0.dp, if (value == selected) Color.White else Color.Transparent, CircleShape).clickable { onSelected(value) }, contentAlignment = Alignment.Center) {}
-}
+@Composable private fun ColorDot(value: Long, selected: Long, onSelected: (Long) -> Unit) { val color = Color(value.toInt()); Box(Modifier.size(40.dp).clip(CircleShape).background(color).border(if (value == selected) 3.dp else 0.dp, if (value == selected) Color.White else Color.Transparent, CircleShape).clickable { onSelected(value) }, contentAlignment = Alignment.Center) {} }
 
 private fun currentText(value: Double, unit: AppSettings.CurrentUnit) = if (unit == AppSettings.CurrentUnit.AMPERE) "${f1(value)} A" else "${f0(value * 1000)} mA"
 private fun tempText(value: Double, unit: AppSettings.TemperatureUnit) = if (unit == AppSettings.TemperatureUnit.CELSIUS) "${f1(value)} °C" else "${f1(value * 9 / 5 + 32)} °F"
