@@ -77,7 +77,10 @@ class CapacitySessionTracker(context: Context) {
         }.coerceAtLeast(0.0)
 
         if (charging) {
-            if (!lastCharging) startChargeSession(nowMs)
+            if (!lastCharging) {
+                resetDischargeTotals()
+                startChargeSession(nowMs)
+            }
             chargeMah += intervalMah
             chargeTimeMs += deltaMs
             activeChargeMah += intervalMah
@@ -87,13 +90,11 @@ class CapacitySessionTracker(context: Context) {
                 finalizeFullCharge(nowMs, levelPercent)
             }
         } else {
+            if (lastCharging) resetChargeTotals()
             dischargeMah += intervalMah
             dischargeTimeMs += deltaMs
             if (levelPercent <= 15) armForFullCharge(levelPercent)
-
-            if (lastCharging) {
-                resetActiveCharge()
-            }
+            resetActiveChargeIfNeeded()
         }
 
         persistTotals()
@@ -147,7 +148,7 @@ class CapacitySessionTracker(context: Context) {
             .putBoolean(KEY_ARMED, false)
             .remove(KEY_ARMED_START_LEVEL)
             .apply()
-        resetActiveCharge()
+        resetActiveChargeIfNeeded()
     }
 
     private fun armForFullCharge(levelPercent: Int) {
@@ -164,11 +165,26 @@ class CapacitySessionTracker(context: Context) {
         }
     }
 
+    private fun resetActiveChargeIfNeeded() {
+        if (!lastCharging) return
+        resetActiveCharge()
+    }
+
     private fun resetActiveCharge() {
         activeChargeStartedAtMs = 0L
         activeChargeMah = 0.0
         activeChargeDurationMs = 0L
         activeChargeStartLevelPercent = -1
+    }
+
+    private fun resetChargeTotals() {
+        chargeMah = 0.0
+        chargeTimeMs = 0L
+    }
+
+    private fun resetDischargeTotals() {
+        dischargeMah = 0.0
+        dischargeTimeMs = 0L
     }
 
     private fun persistTotals() {
