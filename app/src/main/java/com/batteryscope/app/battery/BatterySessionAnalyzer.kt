@@ -17,6 +17,8 @@ class BatterySessionAnalyzer(context: Context) {
 
     private val tracker = CapacitySessionTracker(context)
 
+    fun learnedCapacityMah(): Double? = tracker.learnedCapacityMah()
+
     fun update(snapshot: BatterySnapshot, nowMs: Long = System.currentTimeMillis()): Analysis {
         val state = tracker.update(
             nowMs = nowMs,
