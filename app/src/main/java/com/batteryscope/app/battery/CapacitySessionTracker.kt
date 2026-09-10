@@ -33,6 +33,8 @@ class CapacitySessionTracker(context: Context) {
     private var activeChargeStartLevelPercent = -1
     private val sessions = loadSessions().toMutableList()
 
+    fun currentTotals(): FlowTotals = FlowTotals(chargeMah, dischargeMah, chargeTimeMs, dischargeTimeMs)
+
     fun update(nowMs: Long, levelPercent: Int, charging: Boolean, remainingMah: Double?, currentA: Double?, full: Boolean): State {
         if (lastTimeMs == 0L) {
             if (charging != lastCharging) {
@@ -45,7 +47,6 @@ class CapacitySessionTracker(context: Context) {
             if (!charging && levelPercent <= 15) armForFullCharge(levelPercent)
             return state()
         }
-
         val deltaMs = (nowMs - lastTimeMs).coerceIn(0L, MAX_SAMPLE_GAP_MS)
         val hours = deltaMs / 3_600_000.0
         val currentBasedMah = currentA?.let { abs(it) * hours }?.takeIf { it.isFinite() } ?: 0.0
@@ -57,10 +58,7 @@ class CapacitySessionTracker(context: Context) {
         }.coerceAtLeast(0.0)
 
         if (charging) {
-            if (!lastCharging) {
-                resetDischargeTotals()
-                startChargeSession(nowMs)
-            }
+            if (!lastCharging) { resetDischargeTotals(); startChargeSession(nowMs) }
             chargeMah += intervalMah
             chargeTimeMs += deltaMs
             activeChargeMah += intervalMah
@@ -73,7 +71,6 @@ class CapacitySessionTracker(context: Context) {
             if (levelPercent <= 15) armForFullCharge(levelPercent)
             resetActiveChargeIfNeeded()
         }
-
         persistTotals()
         lastTimeMs = nowMs
         lastRemainingMah = remainingMah
@@ -86,13 +83,7 @@ class CapacitySessionTracker(context: Context) {
     fun latestEstimatedCapacityMah(): Double? = sessions.lastOrNull()?.estimatedCapacityMah
     fun learnedCapacityMah(): Double? = sessions.takeLast(MAX_HEALTH_SESSIONS).map { it.estimatedCapacityMah }.averageOrNull()
 
-    private fun startChargeSession(nowMs: Long) {
-        activeChargeStartedAtMs = nowMs
-        activeChargeMah = 0.0
-        activeChargeDurationMs = 0L
-        activeChargeStartLevelPercent = if (armedStartLevelPercent >= 0) armedStartLevelPercent else 0
-    }
-
+    private fun startChargeSession(nowMs: Long) { activeChargeStartedAtMs = nowMs; activeChargeMah = 0.0; activeChargeDurationMs = 0L; activeChargeStartLevelPercent = if (armedStartLevelPercent >= 0) armedStartLevelPercent else 0 }
     private fun finalizeFullCharge(nowMs: Long, levelPercent: Int) {
         val startLevel = activeChargeStartLevelPercent.takeIf { it in 0..15 } ?: return
         val denominator = (levelPercent - startLevel).coerceAtLeast(1)
@@ -105,31 +96,17 @@ class CapacitySessionTracker(context: Context) {
         prefs.edit().putBoolean(KEY_ARMED, false).remove(KEY_ARMED_START_LEVEL).apply()
         resetActiveCharge()
     }
-
     private fun armForFullCharge(levelPercent: Int) {
-        if (!armedForFullCharge) {
-            armedForFullCharge = true
-            armedStartLevelPercent = levelPercent
-            prefs.edit().putBoolean(KEY_ARMED, true).putInt(KEY_ARMED_START_LEVEL, levelPercent).apply()
-        } else if (armedStartLevelPercent < 0) {
-            armedStartLevelPercent = levelPercent
-            prefs.edit().putInt(KEY_ARMED_START_LEVEL, levelPercent).apply()
-        }
+        if (!armedForFullCharge) { armedForFullCharge = true; armedStartLevelPercent = levelPercent; prefs.edit().putBoolean(KEY_ARMED, true).putInt(KEY_ARMED_START_LEVEL, levelPercent).apply() }
+        else if (armedStartLevelPercent < 0) { armedStartLevelPercent = levelPercent; prefs.edit().putInt(KEY_ARMED_START_LEVEL, levelPercent).apply() }
     }
-
     private fun resetActiveChargeIfNeeded() { if (lastCharging) resetActiveCharge() }
     private fun resetActiveCharge() { activeChargeStartedAtMs = 0L; activeChargeMah = 0.0; activeChargeDurationMs = 0L; activeChargeStartLevelPercent = -1 }
     private fun resetChargeTotals() { chargeMah = 0.0; chargeTimeMs = 0L }
     private fun resetDischargeTotals() { dischargeMah = 0.0; dischargeTimeMs = 0L }
-
     private fun persistMode() { prefs.edit().putBoolean(KEY_LAST_CHARGING, lastCharging).apply() }
-    private fun persistTotals() {
-        prefs.edit().putString(KEY_CHARGE_MAH, String.format(Locale.US, "%.6f", chargeMah)).putString(KEY_DISCHARGE_MAH, String.format(Locale.US, "%.6f", dischargeMah)).putLong(KEY_CHARGE_TIME_MS, chargeTimeMs).putLong(KEY_DISCHARGE_TIME_MS, dischargeTimeMs).apply()
-    }
-    private fun persistSessions() {
-        val encoded = sessions.joinToString(";") { listOf(it.estimatedCapacityMah, it.chargedMah, it.durationMs, it.startedAtMs, it.completedAtMs, it.startLevelPercent).joinToString(",") }
-        prefs.edit().putString(KEY_SESSIONS, encoded).apply()
-    }
+    private fun persistTotals() { prefs.edit().putString(KEY_CHARGE_MAH, String.format(Locale.US, "%.6f", chargeMah)).putString(KEY_DISCHARGE_MAH, String.format(Locale.US, "%.6f", dischargeMah)).putLong(KEY_CHARGE_TIME_MS, chargeTimeMs).putLong(KEY_DISCHARGE_TIME_MS, dischargeTimeMs).apply() }
+    private fun persistSessions() { prefs.edit().putString(KEY_SESSIONS, sessions.joinToString(";") { listOf(it.estimatedCapacityMah, it.chargedMah, it.durationMs, it.startedAtMs, it.completedAtMs, it.startLevelPercent).joinToString(",") }).apply() }
     private fun loadSessions(): List<FullChargeSession> {
         val raw = prefs.getString(KEY_SESSIONS, null) ?: return emptyList()
         return raw.split(';').mapNotNull { item ->
