@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -11,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -227,7 +229,7 @@ private fun SettingsScreen(theme: UiPreferences.Theme, colorMode: UiPreferences.
     }
 }
 
-@Composable private fun Section(title: String, content: @Composable Column.() -> Unit) = Card(shape = RoundedCornerShape(28.dp)) { Column(Modifier.fillMaxWidth().padding(22.dp)) { Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(14.dp)); content() } }
+@Composable private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) = Card(shape = RoundedCornerShape(28.dp)) { Column(Modifier.fillMaxWidth().padding(22.dp)) { Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.height(12.dp)); HorizontalDivider(); Spacer(Modifier.height(14.dp)); content() } }
 
 @Composable private fun ChoiceRow(title: String, options: List<String>, selected: String, onSelected: (String) -> Unit) { Text(title, style = MaterialTheme.typography.titleMedium); Spacer(Modifier.height(6.dp)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) { options.forEach { option -> val active = option == selected; Box(Modifier.weight(1f).clip(RoundedCornerShape(13.dp)).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp)).background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { onSelected(option) }.padding(vertical = 9.dp), contentAlignment = Alignment.Center) { Text(option, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal) } } } }
 
