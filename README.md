@@ -25,4 +25,6 @@ The app uses Jetpack Compose and Material 3 with stable APIs only. The interface
 
 ## Battery data
 
-Current telemetry includes power, current, voltage, temperature, energy, charge level, charging state, remaining charge, estimated capacity, and session data. Capacity and health estimation are designed to improve from real charging sessions rather than from a fixed battery-size assumption.
+Current telemetry includes power, current, voltage, temperature, energy, charge level, charging state, remaining charge, charge-time-to-full estimation, learned capacity, health, wear, and charge/discharge session data. Capacity and health estimation are designed to improve from real charging sessions rather than from a fixed battery-size assumption.
+
+Charge and discharge flow/time counters represent the current charging or discharging phase and reset when the direction changes. The live notification uses the same telemetry update interval as the main screen and can be configured with a notification icon plus selectable telemetry entries.
