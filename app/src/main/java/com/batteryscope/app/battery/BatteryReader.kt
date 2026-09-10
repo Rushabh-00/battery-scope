@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import com.batteryscope.app.settings.AppSettings
 import java.io.File
+import kotlin.math.abs
 
 class BatteryReader(context: Context) {
     private val appContext = context.applicationContext
@@ -51,14 +52,53 @@ class BatteryReader(context: Context) {
             estimatedCapacityMah = null,
             powerW = powerW,
             energyWh = energyWh,
+            chargeTimeRemainingMs = estimateChargeTimeRemainingMs(
+                levelPercent = levelPercent,
+                charging = charging,
+                remainingMah = remainingMah,
+                currentA = currentA,
+                capacityMah = sessionAnalyzer.learnedCapacityMah() ?: designCapacityMah,
+            ),
         )
         if (!trackSession) return base
 
         val analysis = sessionAnalyzer.update(base)
+        val learnedCapacityMah = analysis.learnedCapacityMah
         return base.copy(
-            estimatedCapacityMah = analysis.learnedCapacityMah,
+            estimatedCapacityMah = learnedCapacityMah,
+            chargeTimeRemainingMs = estimateChargeTimeRemainingMs(
+                levelPercent = levelPercent,
+                charging = charging,
+                remainingMah = remainingMah,
+                currentA = currentA,
+                capacityMah = learnedCapacityMah ?: designCapacityMah,
+            ),
             sessionAnalysis = analysis,
         )
+    }
+
+    private fun estimateChargeTimeRemainingMs(
+        levelPercent: Int,
+        charging: Boolean,
+        remainingMah: Double?,
+        currentA: Double?,
+        capacityMah: Double?,
+    ): Long? {
+        if (!charging || currentA == null) return null
+        val rateMahPerHour = abs(currentA) * 1000.0
+        if (!rateMahPerHour.isFinite() || rateMahPerHour < 10.0) return null
+
+        val targetMah = capacityMah?.takeIf { it in 100.0..30_000.0 }
+        val neededMah = when {
+            targetMah != null && remainingMah != null -> targetMah - remainingMah
+            targetMah != null -> targetMah * (100 - levelPercent).coerceAtLeast(0) / 100.0
+            else -> null
+        }?.coerceAtLeast(0.0)
+
+        if (neededMah == null || neededMah <= 0.0) return if (levelPercent >= 100) 0L else null
+        return (neededMah / rateMahPerHour * 3_600_000.0)
+            .takeIf { it.isFinite() && it >= 0.0 }
+            ?.toLong()
     }
 
     private fun readChargeCounterMah(): Double? {
