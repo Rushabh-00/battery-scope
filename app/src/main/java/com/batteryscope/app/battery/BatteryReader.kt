@@ -17,7 +17,7 @@ class BatteryReader(context: Context) {
     private val settings = AppSettings(appContext)
     private val currentReader = CurrentReader(batteryManager, settings.invertChargingPolarity)
 
-    fun read(): BatterySnapshot {
+    fun read(trackSession: Boolean = true): BatterySnapshot {
         currentReader.invertChargingPolarity = settings.invertChargingPolarity
         val intent = appContext.registerReceiver(null, batteryChangedFilter)
         val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
@@ -52,6 +52,8 @@ class BatteryReader(context: Context) {
             powerW = powerW,
             energyWh = energyWh,
         )
+        if (!trackSession) return base
+
         val analysis = sessionAnalyzer.update(base)
         return base.copy(
             estimatedCapacityMah = analysis.learnedCapacityMah,
