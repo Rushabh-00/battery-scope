@@ -14,10 +14,19 @@ class AppSettings(context: Context) {
         get() = TemperatureUnit.fromValue(preferences.getString(KEY_TEMPERATURE_UNIT, TemperatureUnit.CELSIUS.value))
         set(value) = preferences.edit().putString(KEY_TEMPERATURE_UNIT, value.value).apply()
 
+    var theme: ThemeMode
+        get() = ThemeMode.fromValue(preferences.getString(KEY_THEME, ThemeMode.AUTO.value))
+        set(value) = preferences.edit().putString(KEY_THEME, value.value).apply()
+
     /** True by default: charging current is positive, discharge current negative. */
     var invertChargingPolarity: Boolean
         get() = preferences.getBoolean(KEY_INVERT_CHARGING_POLARITY, true)
         set(value) = preferences.edit().putBoolean(KEY_INVERT_CHARGING_POLARITY, value).apply()
+
+    /** Shows the live BatteryScope notification and keeps telemetry available in the background. */
+    var notificationEnabled: Boolean
+        get() = preferences.getBoolean(KEY_NOTIFICATION_ENABLED, true)
+        set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_ENABLED, value).apply()
 
     /** Live telemetry refresh interval in milliseconds. */
     var updateIntervalMs: Long
@@ -45,11 +54,23 @@ class AppSettings(context: Context) {
         }
     }
 
+    enum class ThemeMode(val value: String) {
+        AUTO("Auto"),
+        LIGHT("Light"),
+        DARK("Dark");
+
+        companion object {
+            fun fromValue(value: String?): ThemeMode = entries.firstOrNull { it.value == value } ?: AUTO
+        }
+    }
+
     private companion object {
         const val FILE_NAME = "battery_scope_settings"
         const val KEY_CURRENT_UNIT = "current_unit"
         const val KEY_TEMPERATURE_UNIT = "temperature_unit"
+        const val KEY_THEME = "theme"
         const val KEY_INVERT_CHARGING_POLARITY = "invert_charging_polarity"
+        const val KEY_NOTIFICATION_ENABLED = "notification_enabled"
         const val KEY_UPDATE_INTERVAL_MS = "update_interval_ms"
         const val MIN_UPDATE_INTERVAL_MS = 1_250L
         const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
