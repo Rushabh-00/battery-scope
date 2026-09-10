@@ -27,7 +27,6 @@ fun BatteryScopeTheme(
         UiPreferences.Theme.LIGHT -> false
         UiPreferences.Theme.DARK, UiPreferences.Theme.OLED -> true
     }
-
     val colors = if (colorMode == UiPreferences.ColorMode.AUTO) {
         when {
             mode == UiPreferences.Theme.OLED -> oledColorScheme()
@@ -37,9 +36,19 @@ fun BatteryScopeTheme(
             else -> lightColorScheme()
         }
     } else {
-        customColorScheme(Color(accentColorArgb.toULong()), colorStyle, dark, mode == UiPreferences.Theme.OLED)
+        customColorScheme(argbColorToComposeColor(accentColorArgb), colorStyle, dark, mode == UiPreferences.Theme.OLED)
     }
     MaterialTheme(colorScheme = colors, content = content)
+}
+
+private fun argbColorToComposeColor(value: Long): Color {
+    val argb = value.toInt()
+    return Color(
+        red = android.graphics.Color.red(argb) / 255f,
+        green = android.graphics.Color.green(argb) / 255f,
+        blue = android.graphics.Color.blue(argb) / 255f,
+        alpha = android.graphics.Color.alpha(argb) / 255f,
+    )
 }
 
 private fun customColorScheme(accent: Color, style: UiPreferences.ColorStyle, dark: Boolean, oled: Boolean) = if (dark) {
