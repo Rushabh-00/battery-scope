@@ -1,5 +1,6 @@
 package com.batteryscope.app.ui
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -30,106 +31,63 @@ fun BatteryScopeTheme(
     val colors = if (colorMode == UiPreferences.ColorMode.AUTO) {
         when {
             mode == UiPreferences.Theme.OLED -> oledColorScheme()
-            dark -> dynamicDarkColorScheme(context)
-            else -> dynamicLightColorScheme(context)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dark -> dynamicDarkColorScheme(context)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
+            dark -> darkColorScheme()
+            else -> lightColorScheme()
         }
     } else {
-        customColorScheme(
-            accent = Color(accentColorArgb.toULong()),
-            style = colorStyle,
-            dark = dark,
-            oled = mode == UiPreferences.Theme.OLED,
-        )
+        customColorScheme(Color(accentColorArgb.toULong()), colorStyle, dark, mode == UiPreferences.Theme.OLED)
     }
-
     MaterialTheme(colorScheme = colors, content = content)
 }
 
-private fun customColorScheme(
-    accent: Color,
-    style: UiPreferences.ColorStyle,
-    dark: Boolean,
-    oled: Boolean,
-) = if (dark) {
-    val primary = accentForStyle(accent, style, dark = true)
-    val secondary = accentForStyle(accent, style, dark = true, hueOffset = secondaryHue(style))
-    val tertiary = accentForStyle(accent, style, dark = true, hueOffset = tertiaryHue(style))
+private fun customColorScheme(accent: Color, style: UiPreferences.ColorStyle, dark: Boolean, oled: Boolean) = if (dark) {
+    val primary = accentForStyle(accent, style, true)
+    val secondary = accentForStyle(accent, style, true, secondaryHue(style))
+    val tertiary = accentForStyle(accent, style, true, tertiaryHue(style))
     darkColorScheme(
-        primary = primary,
-        onPrimary = Color.Black,
-        primaryContainer = mix(primary, if (oled) Color.Black else Color(0xFF161616), 0.68f),
-        onPrimaryContainer = Color.White,
-        secondary = secondary,
-        onSecondary = Color.Black,
-        secondaryContainer = mix(secondary, if (oled) Color.Black else Color(0xFF161616), 0.72f),
-        onSecondaryContainer = Color.White,
-        tertiary = tertiary,
-        onTertiary = Color.Black,
-        tertiaryContainer = mix(tertiary, if (oled) Color.Black else Color(0xFF161616), 0.72f),
-        onTertiaryContainer = Color.White,
-        background = if (oled) Color.Black else Color(0xFF101010),
-        onBackground = Color.White,
-        surface = if (oled) Color.Black else Color(0xFF101010),
-        onSurface = Color.White,
+        primary = primary, onPrimary = Color.Black,
+        primaryContainer = mix(primary, if (oled) Color.Black else Color(0xFF161616), 0.68f), onPrimaryContainer = Color.White,
+        secondary = secondary, onSecondary = Color.Black,
+        secondaryContainer = mix(secondary, if (oled) Color.Black else Color(0xFF161616), 0.72f), onSecondaryContainer = Color.White,
+        tertiary = tertiary, onTertiary = Color.Black,
+        tertiaryContainer = mix(tertiary, if (oled) Color.Black else Color(0xFF161616), 0.72f), onTertiaryContainer = Color.White,
+        background = if (oled) Color.Black else Color(0xFF101010), onBackground = Color.White,
+        surface = if (oled) Color.Black else Color(0xFF101010), onSurface = Color.White,
         surfaceContainer = if (oled) Color.Black else Color(0xFF191919),
         surfaceContainerLow = if (oled) Color.Black else Color(0xFF141414),
         surfaceContainerHigh = if (oled) Color.Black else Color(0xFF202020),
-        outline = primary.copy(alpha = 0.55f),
-        outlineVariant = primary.copy(alpha = 0.25f),
+        surfaceContainerHighest = if (oled) Color.Black else Color(0xFF262626),
+        outline = primary.copy(alpha = 0.55f), outlineVariant = primary.copy(alpha = 0.25f),
     )
 } else {
-    val primary = accentForStyle(accent, style, dark = false)
-    val secondary = accentForStyle(accent, style, dark = false, hueOffset = secondaryHue(style))
-    val tertiary = accentForStyle(accent, style, dark = false, hueOffset = tertiaryHue(style))
+    val primary = accentForStyle(accent, style, false)
+    val secondary = accentForStyle(accent, style, false, secondaryHue(style))
+    val tertiary = accentForStyle(accent, style, false, tertiaryHue(style))
     lightColorScheme(
-        primary = primary,
-        onPrimary = Color.White,
-        primaryContainer = mix(primary, Color.White, 0.78f),
-        onPrimaryContainer = mix(primary, Color.Black, 0.22f),
-        secondary = secondary,
-        onSecondary = Color.White,
-        secondaryContainer = mix(secondary, Color.White, 0.82f),
-        onSecondaryContainer = mix(secondary, Color.Black, 0.25f),
-        tertiary = tertiary,
-        onTertiary = Color.White,
-        tertiaryContainer = mix(tertiary, Color.White, 0.82f),
-        onTertiaryContainer = mix(tertiary, Color.Black, 0.25f),
-        background = Color(0xFFFAFAFA),
-        surface = Color(0xFFFAFAFA),
-        surfaceContainer = Color.White,
-        surfaceContainerLow = Color(0xFFF4F4F4),
-        surfaceContainerHigh = Color.White,
-        outline = primary.copy(alpha = 0.55f),
-        outlineVariant = primary.copy(alpha = 0.28f),
+        primary = primary, onPrimary = Color.White,
+        primaryContainer = mix(primary, Color.White, 0.78f), onPrimaryContainer = mix(primary, Color.Black, 0.22f),
+        secondary = secondary, onSecondary = Color.White,
+        secondaryContainer = mix(secondary, Color.White, 0.82f), onSecondaryContainer = mix(secondary, Color.Black, 0.25f),
+        tertiary = tertiary, onTertiary = Color.White,
+        tertiaryContainer = mix(tertiary, Color.White, 0.82f), onTertiaryContainer = mix(tertiary, Color.Black, 0.25f),
+        background = Color(0xFFFAFAFA), surface = Color(0xFFFAFAFA), onSurface = Color(0xFF1A1A1A),
+        surfaceContainer = Color.White, surfaceContainerLow = Color(0xFFF4F4F4), surfaceContainerHigh = Color.White,
+        outline = primary.copy(alpha = 0.55f), outlineVariant = primary.copy(alpha = 0.28f),
     )
 }
 
 private fun oledColorScheme() = darkColorScheme(
-    background = Color.Black,
-    onBackground = Color.White,
-    surface = Color.Black,
-    onSurface = Color.White,
-    surfaceContainer = Color.Black,
-    surfaceContainerLow = Color.Black,
-    surfaceContainerHigh = Color.Black,
-    surfaceContainerHighest = Color.Black,
+    background = Color.Black, onBackground = Color.White,
+    surface = Color.Black, onSurface = Color.White,
+    surfaceContainer = Color.Black, surfaceContainerLow = Color.Black,
+    surfaceContainerHigh = Color.Black, surfaceContainerHighest = Color.Black,
 )
 
-private fun accentForStyle(
-    accent: Color,
-    style: UiPreferences.ColorStyle,
-    dark: Boolean,
-    hueOffset: Float = 0f,
-): Color {
+private fun accentForStyle(accent: Color, style: UiPreferences.ColorStyle, dark: Boolean, hueOffset: Float = 0f): Color {
     val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(
-        android.graphics.Color.rgb(
-            (accent.red * 255).toInt(),
-            (accent.green * 255).toInt(),
-            (accent.blue * 255).toInt(),
-        ),
-        hsv,
-    )
+    android.graphics.Color.colorToHSV(android.graphics.Color.rgb((accent.red * 255).toInt(), (accent.green * 255).toInt(), (accent.blue * 255).toInt()), hsv)
     val saturation = when (style) {
         UiPreferences.ColorStyle.TONAL -> hsv[1] * 0.68f
         UiPreferences.ColorStyle.NEUTRAL -> 0.08f
@@ -142,8 +100,7 @@ private fun accentForStyle(
         UiPreferences.ColorStyle.RAIN -> -18f
         else -> 0f
     } + 360f) % 360f
-    val value = if (dark) 0.78f else 0.42f
-    return Color.hsv(hue, saturation, value)
+    return Color.hsv(hue, saturation, if (dark) 0.78f else 0.42f)
 }
 
 private fun secondaryHue(style: UiPreferences.ColorStyle) = when (style) {
