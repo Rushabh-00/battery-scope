@@ -129,7 +129,7 @@ class BatteryNotificationService : Service() {
             if (lines.isEmpty()) lines.add("No notification entries selected")
         }
 
-        val style = Notification.InboxStyle(builder)
+        val style = Notification.InboxStyle()
         lines.forEach(style::addLine)
 
         return builder
