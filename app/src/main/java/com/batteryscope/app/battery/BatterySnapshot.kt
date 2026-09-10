@@ -12,6 +12,5 @@ data class BatterySnapshot(
     val estimatedCapacityMah: Double?,
     val powerW: Double?,
     val energyWh: Double?,
-    val chargeTimeRemainingMs: Long? = null,
     val sessionAnalysis: BatterySessionAnalyzer.Analysis? = null,
 )
