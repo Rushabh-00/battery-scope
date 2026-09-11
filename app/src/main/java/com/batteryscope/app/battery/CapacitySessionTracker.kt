@@ -32,6 +32,7 @@ class CapacitySessionTracker(context: Context) {
     private var activeChargeDurationMs = 0L
     private var activeChargeStartLevelPercent = -1
     private val sessions = loadSessions().toMutableList()
+    private var sessionSnapshot: List<FullChargeSession> = sessions.toList()
     private var lastPersistedAtMs = 0L
 
     fun currentTotals(): FlowTotals = FlowTotals(chargeMah, dischargeMah, chargeTimeMs, dischargeTimeMs)
@@ -90,9 +91,9 @@ class CapacitySessionTracker(context: Context) {
         return state()
     }
 
-    private fun state(): State = State(sessions.toList(), FlowTotals(chargeMah, dischargeMah, chargeTimeMs, dischargeTimeMs))
-    fun latestEstimatedCapacityMah(): Double? = sessions.lastOrNull()?.estimatedCapacityMah
-    fun learnedCapacityMah(): Double? = sessions.takeLast(MAX_HEALTH_SESSIONS).map { it.estimatedCapacityMah }.averageOrNull()
+    private fun state(): State = State(sessionSnapshot, FlowTotals(chargeMah, dischargeMah, chargeTimeMs, dischargeTimeMs))
+    fun latestEstimatedCapacityMah(): Double? = sessionSnapshot.lastOrNull()?.estimatedCapacityMah
+    fun learnedCapacityMah(): Double? = sessionSnapshot.takeLast(MAX_HEALTH_SESSIONS).map { it.estimatedCapacityMah }.averageOrNull()
 
     private fun startChargeSession(nowMs: Long) {
         activeChargeStartedAtMs = nowMs
@@ -107,6 +108,7 @@ class CapacitySessionTracker(context: Context) {
         val measured = (activeChargeMah * 100.0 / denominator).takeIf { it in MIN_CAPACITY_MAH..MAX_CAPACITY_MAH } ?: return false
         sessions.add(FullChargeSession(measured, activeChargeMah, activeChargeDurationMs, activeChargeStartedAtMs, nowMs, startLevel))
         while (sessions.size > MAX_STORED_SESSIONS) sessions.removeAt(0)
+        sessionSnapshot = sessions.toList()
         persistSessions()
         armedForFullCharge = false
         armedStartLevelPercent = -1
