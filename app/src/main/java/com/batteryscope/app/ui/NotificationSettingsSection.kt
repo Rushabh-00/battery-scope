@@ -141,21 +141,15 @@ private fun NotificationMetricRow(
                     .padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (active) {
-                        Text("✓", fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    Text(
-                        metric.value,
-                        color = if (locked) {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                    )
-                }
+                Text(
+                    metric.value,
+                    color = if (locked) {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                )
             }
         }
     }
