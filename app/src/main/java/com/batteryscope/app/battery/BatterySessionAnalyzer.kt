@@ -34,7 +34,7 @@ class BatterySessionAnalyzer(context: Context) {
             currentA = snapshot.currentA,
             full = snapshot.full,
         )
-        val health = BatteryHealthCalculator.calculate(
+        val health = BatteryHealthCalculator.calculateFromSessions(
             designCapacityMah = snapshot.batteryCapacityMah,
             fullChargeSessions = state.fullChargeSessions,
         )
