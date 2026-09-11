@@ -7,21 +7,30 @@ A lightweight Android battery telemetry app built with a deliberately small, sep
 ```text
 app/src/main/java/com/batteryscope/app/
 ├── battery/   Battery readings and measurement logic
+├── monitor/   Optional foreground monitoring and boot restart
 ├── settings/  Persistent app and UI preferences
 └── ui/        Compose UI and theme
 ```
 
-The UI and measurement code are kept separate so telemetry can be improved without redesigning the interface.
+The UI and measurement code are kept separate from telemetry and monitoring so each area can evolve without duplicating measurement logic.
 
 ## Build
 
 The repository has one GitHub Actions workflow. It runs on every push to `main` and can also be started manually.
 
-The workflow runs JVM tests, builds one release APK, signs it with the repository signing secrets, verifies the signature, and publishes the single APK to a GitHub release.
+The workflow runs JVM tests, builds one release APK, signs it with the repository signing secrets, verifies the signature, and publishes the single APK to a version-tagged GitHub release.
 
 ## Current UI
 
-The app uses Jetpack Compose and Material 3 with stable APIs only. The interface supports Auto, Light, Dark, and OLED presentation modes.
+The app uses Jetpack Compose and Material 3 with stable APIs only. The live screen now surfaces monitoring state, session quality, and capacity trend information without hiding the primary telemetry behind navigation.
+
+Settings include appearance, units, telemetry refresh, background monitoring, boot startup, background sampling rate, battery-optimization guidance, and design-capacity input.
+
+## Background monitoring
+
+Background monitoring is explicitly opt-in. When enabled, BatteryScope keeps a user-visible low-priority foreground-service notification and samples telemetry at a separate, battery-conscious interval. The live screen reads the same in-process telemetry source so capacity sessions are not double-counted.
+
+Start on boot is also opt-in and restarts monitoring only when both monitoring and boot startup are enabled. Android and device manufacturers can still impose their own background restrictions; the settings screen provides direct access to the app's battery settings and Android's battery-optimization flow.
 
 ## Battery data
 
@@ -31,4 +40,4 @@ Capacity learning requires a real low-to-full charging cycle. Session measuremen
 
 Battery health uses a robust quality-weighted median over recent completed sessions and exposes a confidence score that grows as independent measurements accumulate. Recent capacity measurements also feed a trend model so long-term capacity movement can be identified without making a single noisy session decisive.
 
-Charge and discharge flow/time counters represent the current charging or discharging phase and reset when the direction changes. Live telemetry remains foreground-oriented and does not require a background service or notification system.
+Charge and discharge flow/time counters represent the current charging or discharging phase and reset when the direction changes.
