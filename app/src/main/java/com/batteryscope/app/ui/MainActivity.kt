@@ -1,15 +1,13 @@
 package com.batteryscope.app.ui
 
 import android.Manifest
-import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
+import androidx.activity.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -99,6 +97,34 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        val settings = AppSettings(this)
+        if (!settings.notificationEnabled) return
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            if (!settings.notificationPermissionRequested) {
+                settings.notificationPermissionRequested = true
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
+            }
+        } else {
+            BatteryMonitoringController.start(this)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST &&
+            grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            AppSettings(this).notificationEnabled
+        ) {
+            BatteryMonitoringController.start(this)
+        }
+    }
+
+    private companion object {
+        const val NOTIFICATION_PERMISSION_REQUEST = 4001
+    }
 }
 
 private enum class AppScreen { LIVE, SETTINGS }
@@ -129,9 +155,9 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
     var lastUpdatedAt by remember { mutableStateOf(if (battery != null) System.currentTimeMillis() else 0L) }
     var readError by remember { mutableStateOf(false) }
     val interval = settings.updateIntervalMs
-    val backgroundMonitoring = settings.backgroundMonitoringEnabled
+    val notificationEnabled = settings.notificationEnabled
 
-    LaunchedEffect(backgroundMonitoring, interval) {
+    LaunchedEffect(notificationEnabled, interval) {
         if (BatteryRuntime.latest() == null) {
             runCatching { withContext(Dispatchers.IO) { BatteryRuntime.read(context) } }
                 .onSuccess {
@@ -143,7 +169,7 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
         }
 
         while (isActive) {
-            if (backgroundMonitoring) {
+            if (notificationEnabled) {
                 BatteryRuntime.latest()?.let {
                     battery = it
                     lastUpdatedAt = System.currentTimeMillis()
@@ -170,7 +196,7 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = PaddingValues(18.dp),
             ) {
-                item { Header(battery?.charging == true, backgroundMonitoring, openSettings) }
+                item { Header(battery?.charging == true, notificationEnabled, openSettings) }
                 item { MonitoringBanner(settings, battery) }
                 if (readError && battery == null) {
                     item { EmptyCard("Battery data unavailable", "BatteryScope will retry automatically.") }
@@ -180,7 +206,7 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
                     if (!readError) item { EmptyCard("Reading battery telemetry…", "The first sample will appear here.") }
                 } else {
                     item { Hero(value, settings) }
-                    item { LiveMeta(lastUpdatedAt, interval, readError, backgroundMonitoring) }
+                    item { LiveMeta(lastUpdatedAt, interval, readError, notificationEnabled) }
                     value.sessionAnalysis?.let { analysis ->
                         item { CapacityHealthCard(value, analysis) }
                         item { HistoryCard(analysis) }
@@ -192,14 +218,14 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
 }
 
 @Composable
-private fun Header(charging: Boolean, backgroundMonitoring: Boolean, onSettings: () -> Unit) {
+private fun Header(charging: Boolean, notificationEnabled: Boolean, onSettings: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text("BatteryScope", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(if (charging) "Live telemetry • charging" else "Live telemetry • on battery", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(if (backgroundMonitoring) "Monitoring on" else "Live only", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Text(if (notificationEnabled) "Notifications on" else "Notifications off", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
             OutlinedButton(onClick = onSettings) { Text("Settings") }
         }
     }
@@ -208,16 +234,16 @@ private fun Header(charging: Boolean, backgroundMonitoring: Boolean, onSettings:
 @Composable
 private fun MonitoringBanner(settings: AppSettings, battery: BatterySnapshot?) = Card(
     shape = RoundedCornerShape(22.dp),
-    colors = CardDefaults.cardColors(if (settings.backgroundMonitoringEnabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant),
+    colors = CardDefaults.cardColors(if (settings.notificationEnabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant),
 ) {
     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(12.dp).clip(CircleShape).background(if (settings.backgroundMonitoringEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
+        Box(Modifier.size(12.dp).clip(CircleShape).background(if (settings.notificationEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(if (settings.backgroundMonitoringEnabled) "Background monitoring is active" else "Background monitoring is off", fontWeight = FontWeight.SemiBold)
+            Text(if (settings.notificationEnabled) "Notification monitoring is active" else "Notifications are off", fontWeight = FontWeight.SemiBold)
             Text(
-                if (settings.backgroundMonitoringEnabled) "${battery?.levelPercent ?: "—"}% • ${formatInterval(settings.updateIntervalMs)} sampling • persistent status notification"
-                else "Enable it from Settings for optional monitoring after you leave the app.",
+                if (settings.notificationEnabled) "${battery?.levelPercent ?: "—"}% • ${formatInterval(settings.updateIntervalMs)} sampling • persistent status notification"
+                else "Enable Notifications in Settings for optional monitoring after you leave the app.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -270,13 +296,13 @@ private fun Mini(label: String, value: String) = Column {
 }
 
 @Composable
-private fun LiveMeta(lastUpdatedAt: Long, interval: Long, readError: Boolean, backgroundMonitoring: Boolean) {
+private fun LiveMeta(lastUpdatedAt: Long, interval: Long, readError: Boolean, notificationEnabled: Boolean) {
     val age = if (lastUpdatedAt > 0) ((System.currentTimeMillis() - lastUpdatedAt) / 1000L).coerceAtLeast(0L) else 0L
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(
             when {
                 readError -> "Last good telemetry retained"
-                backgroundMonitoring -> "Reading shared background telemetry"
+                notificationEnabled -> "Reading shared notification telemetry"
                 age == 0L -> "Updated just now"
                 age == 1L -> "Updated 1 second ago"
                 else -> "Updated ${age}s ago"
@@ -284,7 +310,7 @@ private fun LiveMeta(lastUpdatedAt: Long, interval: Long, readError: Boolean, ba
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(if (backgroundMonitoring) "Background • ${formatInterval(interval)} interval" else "Every ${formatInterval(interval)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (notificationEnabled) "Notification • ${formatInterval(interval)} interval" else "Every ${formatInterval(interval)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -363,18 +389,15 @@ private fun SettingsScreen(
 ) {
     BackHandler { onBack() }
     val context = LocalContext.current
-    val activity = context as? Activity
     val capacityPreferences = remember(context) { CapacityPreferences(context) }
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
     var tempUnit by remember { mutableStateOf(settings.temperatureUnit) }
     var invert by remember { mutableStateOf(settings.invertChargingPolarity) }
     var interval by remember { mutableStateOf(settings.updateIntervalMs) }
-    var backgroundEnabled by remember { mutableStateOf(settings.backgroundMonitoringEnabled) }
     var startOnBoot by remember { mutableStateOf(settings.startOnBoot) }
     var capacity by remember { mutableStateOf(capacityPreferences.designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
     var showColorDialog by remember { mutableStateOf(false) }
-    var optimizationIgnored by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
 
     Scaffold { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = MaterialTheme.colorScheme.background) {
@@ -386,51 +409,10 @@ private fun SettingsScreen(
                     }
                 }
                 item {
-                    Section("Background monitoring") {
-                        ToggleRow(
-                            "Background monitoring",
-                            "Keeps telemetry alive outside the app with an ongoing low-priority notification.",
-                            backgroundEnabled,
-                        ) {
-                            backgroundEnabled = it
-                            settings.backgroundMonitoringEnabled = it
-                            if (it) {
-                                requestNotificationPermission(activity)
-                                BatteryMonitoringController.start(context)
-                            } else {
-                                BatteryMonitoringController.stop(context)
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            "Uses the same update interval as Foreground telemetry: ${formatInterval(interval)}.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(onClick = {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-                            context.startActivity(intent)
-                        }, Modifier.fillMaxWidth()) { Text("Open app battery settings") }
-                        Spacer(Modifier.height(8.dp))
-                        Button(onClick = {
-                            requestBatteryOptimization(context)
-                            optimizationIgnored = isIgnoringBatteryOptimizations(context)
-                        }, Modifier.fillMaxWidth(), enabled = !optimizationIgnored) {
-                            Text(if (optimizationIgnored) "Battery optimization already relaxed" else "Allow unrestricted battery use")
-                        }
-                        Text(
-                            "Some manufacturers also provide their own Auto-start/background-activity switch. BatteryScope cannot change those OEM-only controls automatically.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                item {
                     Section("Start on boot") {
                         ToggleRow(
                             "Start on boot",
-                            "Starts BatteryScope background monitoring after boot or an app update.",
+                            "Starts BatteryScope notification monitoring after boot or an app update.",
                             startOnBoot,
                         ) {
                             startOnBoot = it
@@ -438,8 +420,8 @@ private fun SettingsScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            if (backgroundEnabled) "Background monitoring is currently enabled, so this switch can start it automatically after boot."
-                            else "Background monitoring is off. Enable it above for this switch to have an effect at boot.",
+                            if (settings.notificationEnabled) "Notifications are enabled, so this switch can start them automatically after boot or an app update."
+                            else "Notifications are off. Enable Notifications for this switch to start them automatically.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -487,7 +469,7 @@ private fun SettingsScreen(
                 item {
                     Section("Telemetry") {
                         Text("Foreground update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                        Text("Controls live telemetry refresh and background monitoring.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Controls live telemetry refresh and notification monitoring.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Text(formatInterval(interval), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Slider(value = interval.toFloat(), onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) }, onValueChangeFinished = { settings.updateIntervalMs = interval }, valueRange = 1_250f..10_000f, steps = 34)
@@ -565,25 +547,6 @@ private fun ColorDot(value: Long, selected: Long, onSelected: (Long) -> Unit) {
     val color = Color(value.toInt())
     Box(Modifier.size(40.dp).clip(CircleShape).background(color).border(if (value == selected) 3.dp else 0.dp, if (value == selected) Color.White else Color.Transparent, CircleShape).selectable(selected = value == selected, onClick = { onSelected(value) }, role = Role.RadioButton).padding(6.dp)) {}
 }
-
-private fun requestNotificationPermission(activity: Activity?) {
-    if (Build.VERSION.SDK_INT >= 33 && activity != null && activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-        activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4001)
-    }
-}
-
-private fun requestBatteryOptimization(context: android.content.Context) {
-    runCatching {
-        context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")))
-    }.recoverCatching {
-        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-    }
-}
-
-private fun isIgnoringBatteryOptimizations(context: android.content.Context): Boolean = runCatching {
-    val manager = context.getSystemService(PowerManager::class.java)
-    Build.VERSION.SDK_INT < 23 || manager?.isIgnoringBatteryOptimizations(context.packageName) == true
-}.getOrDefault(false)
 
 private fun currentText(value: Double, unit: AppSettings.CurrentUnit) = if (unit == AppSettings.CurrentUnit.AMPERE) "${f1(value)} A" else "${f0(value * 1000)} mA"
 private fun tempText(value: Double, unit: AppSettings.TemperatureUnit) = if (unit == AppSettings.TemperatureUnit.CELSIUS) "${f1(value)} °C" else "${f1(value * 9 / 5 + 32)} °F"
