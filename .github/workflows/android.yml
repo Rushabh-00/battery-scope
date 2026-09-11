@@ -46,6 +46,9 @@ jobs:
           cache-cleanup: on-success
           add-job-summary: on-failure
 
+      - name: Run JVM tests
+        run: gradle test --configuration-cache --build-cache --parallel
+
       - name: Build release APK
         run: gradle assembleRelease --configuration-cache --build-cache --parallel
 
