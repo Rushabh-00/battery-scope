@@ -79,13 +79,13 @@ class BatteryMonitoringService : Service() {
         val entryMetrics = settings.notificationEntries
             .filter { it != iconMetric }
             .sortedBy { it.ordinal }
-        val headline = snapshot?.let { formatCompactMetric(it, iconMetric) } ?: "Monitoring"
         val detailLines = snapshot?.let { value ->
             buildList {
                 entryMetrics.forEach { add(formatMetric(value, it)) }
                 if (settings.notificationChargeTimeEstimate) formatChargeTimeEstimate(value)?.let(::add)
             }
         }.orEmpty()
+        val contentText = detailLines.firstOrNull() ?: "BatteryScope • monitoring"
 
         val openIntent = PendingIntent.getActivity(
             this,
@@ -96,14 +96,14 @@ class BatteryMonitoringService : Service() {
 
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(snapshot?.let { renderMetricIcon(it, iconMetric) } ?: renderPlaceholderIcon(iconMetric))
-            .setContentTitle(headline)
-            .setContentText(entryMetrics.joinToString("   ") { formatCompactMetric(snapshot, it) }.ifBlank { "BatteryScope • monitoring" })
+            .setContentTitle("BatteryScope")
+            .setContentText(contentText)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setContentIntent(openIntent)
 
-        if (detailLines.isNotEmpty()) {
+        if (detailLines.size > 1) {
             builder.setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n")))
         }
         return builder.build()
@@ -112,7 +112,10 @@ class BatteryMonitoringService : Service() {
     private fun renderMetricIcon(
         snapshot: BatterySnapshot,
         metric: AppSettings.NotificationMetric,
-    ): Icon = renderIcon(iconParts(snapshot, metric).first, iconParts(snapshot, metric).second)
+    ): Icon {
+        val (value, unit) = iconParts(snapshot, metric)
+        return renderIcon(value, unit)
+    }
 
     private fun renderPlaceholderIcon(metric: AppSettings.NotificationMetric): Icon =
         renderIcon("—", iconUnit(metric))
@@ -172,19 +175,6 @@ class BatteryMonitoringService : Service() {
         AppSettings.NotificationMetric.PERCENT -> "%"
     }
 
-    private fun formatCompactMetric(snapshot: BatterySnapshot?, metric: AppSettings.NotificationMetric): String {
-        if (snapshot == null) return "— ${metric.value}"
-        return when (metric) {
-            AppSettings.NotificationMetric.POWER -> "${snapshot.powerW?.let { f1(it) } ?: "—"} W"
-            AppSettings.NotificationMetric.CURRENT -> "${snapshot.currentA?.let { currentText(it) } ?: "—"}"
-            AppSettings.NotificationMetric.CHARGE -> "${snapshot.remainingMah?.let { f2(it / 1000.0) } ?: "—"} Ah"
-            AppSettings.NotificationMetric.TEMPERATURE -> "${snapshot.temperatureC?.let { f0(it) } ?: "—"} °C"
-            AppSettings.NotificationMetric.VOLTAGE -> "${snapshot.voltageV?.let { f1(it) } ?: "—"} V"
-            AppSettings.NotificationMetric.ENERGY -> "${snapshot.energyWh?.let { f1(it) } ?: "—"} Wh"
-            AppSettings.NotificationMetric.PERCENT -> "${snapshot.levelPercent}%"
-        }
-    }
-
     private fun formatMetric(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "Power ${snapshot.powerW?.let { "${f1(it)} W" } ?: "—"}"
         AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let { currentText(it) } ?: "—"}"
@@ -240,7 +230,6 @@ class BatteryMonitoringService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun currentText(value: Double) = String.format(Locale.US, "%.2f A", value)
-    private fun f0(value: Double) = String.format(Locale.US, "%.0f", value)
     private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
     private fun f2(value: Double) = String.format(Locale.US, "%.2f", value)
 
