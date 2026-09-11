@@ -21,15 +21,16 @@ class BatteryReader(context: Context) {
     fun read(): BatterySnapshot {
         currentReader.invertChargingPolarity = settings.invertChargingPolarity
         val intent = appContext.registerReceiver(null, batteryChangedFilter)
-        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) ?: 0
-        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
-        val levelPercent = if (scale > 0) ((level * 100f) / scale).toInt().coerceIn(0, 100) else 0
-        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
-            ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+            ?: error("Battery telemetry broadcast unavailable")
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        require(level >= 0 && scale > 0) { "Battery level telemetry unavailable" }
+        val levelPercent = ((level * 100f) / scale).toInt().coerceIn(0, 100)
+        val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
         val full = status == BatteryManager.BATTERY_STATUS_FULL || levelPercent >= 100
-        val voltageV = (intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0).takeIf { it > 0 }?.div(1000.0)
-        val temperatureC = (intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE)
+        val voltageV = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0).takeIf { it > 0 }?.div(1000.0)
+        val temperatureC = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
             .takeIf { it != Int.MIN_VALUE }?.div(10.0)
         val remainingMah = readChargeCounterMah()
         val currentA = currentReader.readAmps()
@@ -65,21 +66,33 @@ class BatteryReader(context: Context) {
 
 class BatteryCapacityReader {
     data class Result(val designMah: Double?)
+    private data class Candidate(val file: File, val energyBased: Boolean)
+
+    private var candidates: List<Candidate>? = null
 
     fun read(voltageV: Double?): Result {
-        val dirs = File("/sys/class/power_supply").listFiles().orEmpty()
-        val designMah = dirs.asSequence()
-            .mapNotNull { readCapacityMah(it, "charge_full_design", voltageV) ?: readCapacityMah(it, "energy_full_design", voltageV) }
+        val files = candidates ?: discoverCandidates().also { candidates = it }
+        val designMah = files.asSequence()
+            .mapNotNull { readCapacityMah(it.file, it.energyBased, voltageV) }
             .firstOrNull()
         return Result(designMah)
     }
 
-    private fun readCapacityMah(dir: File, name: String, voltageV: Double?): Double? {
-        val file = File(dir, name)
-        if (!file.isFile || !file.canRead()) return null
+    private fun discoverCandidates(): List<Candidate> = File("/sys/class/power_supply")
+        .listFiles()
+        .orEmpty()
+        .flatMap { dir ->
+            buildList {
+                add(Candidate(File(dir, "charge_full_design"), energyBased = false))
+                add(Candidate(File(dir, "energy_full_design"), energyBased = true))
+            }
+        }
+        .filter { it.file.isFile && it.file.canRead() }
+
+    private fun readCapacityMah(file: File, energyBased: Boolean, voltageV: Double?): Double? {
         val raw = file.readText().trim().toDoubleOrNull() ?: return null
         if (raw <= 0.0) return null
-        val value = if (name.startsWith("energy_")) {
+        val value = if (energyBased) {
             val voltageMv = voltageV?.times(1000.0)?.takeIf { it > 0.0 } ?: return null
             raw / voltageMv
         } else {
