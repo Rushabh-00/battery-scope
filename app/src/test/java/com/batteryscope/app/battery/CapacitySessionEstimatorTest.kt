@@ -7,7 +7,7 @@ import org.junit.Test
 class CapacitySessionEstimatorTest {
     @Test
     fun acceptsSufficientLowToFullSpan() {
-        assertEquals(4500.0, CapacitySessionEstimator.estimate(3600.0, 20 - 5, 95), 0.0)
+        assertEquals(4500.0, CapacitySessionEstimator.estimate(3600.0, 10, 90), 0.0)
     }
 
     @Test
