@@ -112,9 +112,8 @@ class CapacitySessionTracker(context: Context) {
     }
 
     private fun finalizeFullCharge(nowMs: Long, levelPercent: Int): Boolean {
-        val startLevel = activeChargeStartLevelPercent.takeIf { it in 0..15 } ?: return false
-        val denominator = (levelPercent - startLevel).coerceAtLeast(1)
-        val measured = (activeChargeMah * 100.0 / denominator).takeIf { it in MIN_CAPACITY_MAH..MAX_CAPACITY_MAH } ?: return false
+        val startLevel = activeChargeStartLevelPercent
+        val measured = CapacitySessionEstimator.estimate(activeChargeMah, startLevel, levelPercent) ?: return false
         sessions.add(FullChargeSession(measured, activeChargeMah, activeChargeDurationMs, activeChargeStartedAtMs, nowMs, startLevel))
         while (sessions.size > MAX_STORED_SESSIONS) sessions.removeAt(0)
         sessionSnapshot = sessions.toList()
