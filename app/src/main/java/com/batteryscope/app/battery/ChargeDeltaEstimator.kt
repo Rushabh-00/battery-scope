@@ -9,6 +9,7 @@ object ChargeDeltaEstimator {
     private const val MIN_ALLOWED_JUMP_MAH = 250.0
     private const val CURRENT_HEADROOM_MULTIPLIER = 4.0
     private const val CURRENT_HEADROOM_MAH = 50.0
+    private const val MILLIAMP_HOURS_PER_AMP_HOUR = 1000.0
 
     fun estimate(
         remainingDeltaMah: Double,
@@ -19,7 +20,7 @@ object ChargeDeltaEstimator {
         val safeDeltaMs = deltaMs.coerceAtLeast(0L)
         val hours = safeDeltaMs / 3_600_000.0
         val currentBasedMah = currentA
-            ?.let { abs(it) * hours }
+            ?.let { abs(it) * hours * MILLIAMP_HOURS_PER_AMP_HOUR }
             ?.takeIf { it.isFinite() }
             ?: 0.0
 
