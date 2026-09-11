@@ -36,7 +36,7 @@ import com.batteryscope.app.settings.AppSettings
 @Composable
 fun NotificationSettingsSection(settings: AppSettings) {
     var icon by remember { mutableStateOf(settings.notificationIcon) }
-    var entries by remember { mutableStateOf(settings.notificationEntries) }
+    var entries by remember { mutableStateOf(settings.notificationEntries - settings.notificationIcon) }
     var chargeTime by remember { mutableStateOf(settings.notificationChargeTimeEstimate) }
     val metrics = AppSettings.NotificationMetric.entries
 
@@ -46,44 +46,57 @@ fun NotificationSettingsSection(settings: AppSettings) {
     ) {
         Column(Modifier.fillMaxWidth().padding(22.dp)) {
             Text("Notifications", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.padding(top = 1.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
-                "Choose what BatteryScope keeps visible in the ongoing notification.",
+                "Choose the headline value and the details shown in the ongoing notification.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.padding(top = 10.dp))
+            Spacer(Modifier.height(12.dp))
             HorizontalDivider()
-            Spacer(Modifier.padding(top = 14.dp))
+            Spacer(Modifier.height(14.dp))
 
             Text("Notification Icon", fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.padding(top = 8.dp))
+            Text(
+                "This value is shown as the notification headline.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
             NotificationMetricRow(
                 metrics = metrics,
                 selected = icon,
-                multiSelect = false,
                 checked = { it == icon },
-                onSelected = {
-                    icon = it
-                    settings.notificationIcon = it
+                disabled = emptySet(),
+                onSelected = { metric ->
+                    icon = metric
+                    entries = entries - metric
+                    settings.notificationIcon = metric
+                    settings.notificationEntries = entries
                 },
             )
 
-            Spacer(Modifier.padding(top = 18.dp))
+            Spacer(Modifier.height(18.dp))
             Text("Notification Entries", fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.padding(top = 8.dp))
+            Text(
+                "Choose the additional values. The selected icon value is always excluded.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
             NotificationMetricRow(
                 metrics = metrics,
                 selected = icon,
-                multiSelect = true,
                 checked = { it in entries },
+                disabled = setOf(icon),
                 onSelected = { metric ->
+                    if (metric == icon) return@NotificationMetricRow
                     entries = if (metric in entries) entries - metric else entries + metric
                     settings.notificationEntries = entries
                 },
             )
 
-            Spacer(Modifier.padding(top = 18.dp))
+            Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
                     Text("Charge Time Estimate", fontWeight = FontWeight.SemiBold)
@@ -109,23 +122,32 @@ fun NotificationSettingsSection(settings: AppSettings) {
 private fun NotificationMetricRow(
     metrics: List<AppSettings.NotificationMetric>,
     selected: AppSettings.NotificationMetric,
-    multiSelect: Boolean,
     checked: (AppSettings.NotificationMetric) -> Boolean,
+    disabled: Set<AppSettings.NotificationMetric>,
     onSelected: (AppSettings.NotificationMetric) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         metrics.forEach { metric ->
             val active = checked(metric)
+            val locked = metric in disabled
+            val borderColor = if (locked) MaterialTheme.colorScheme.outline.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outline
+            val fill = when {
+                active -> MaterialTheme.colorScheme.primaryContainer
+                locked -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                else -> Color.Transparent
+            }
             Box(
                 Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(13.dp))
-                    .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), RoundedCornerShape(13.dp))
-                    .selectable(
-                        selected = active,
-                        onClick = { onSelected(metric) },
-                        role = if (multiSelect) Role.Checkbox else Role.RadioButton,
+                    .background(fill)
+                    .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(13.dp))
+                    .then(
+                        if (!locked) Modifier.selectable(
+                            selected = active,
+                            onClick = { onSelected(metric) },
+                            role = Role.Checkbox,
+                        ) else Modifier
                     )
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center,
@@ -135,7 +157,11 @@ private fun NotificationMetricRow(
                         Text("✓", fontWeight = FontWeight.Bold)
                         Spacer(Modifier.width(4.dp))
                     }
-                    Text(metric.value, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(
+                        metric.value,
+                        color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                    )
                 }
             }
         }
