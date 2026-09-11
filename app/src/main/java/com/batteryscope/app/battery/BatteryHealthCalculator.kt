@@ -12,7 +12,7 @@ object BatteryHealthCalculator {
         val design = designCapacityMah?.takeIf { it > 0.0 } ?: return Result(null, 0, null)
         val samples = fullChargeCapacitiesMah.takeLast(MAX_SAMPLES).filter { it > 0.0 && it.isFinite() }
         if (samples.isEmpty()) return Result(null, 0, null)
-        return calculateFromWeightedSamples(design, samples.map { WeightedSample(it, 1.0) })
+        return calculateFromWeightedSamples(design, samples.map { WeightedSample(it, 1.0) }, useEvenMedian = true)
     }
 
     fun calculateFromSessions(
@@ -26,17 +26,27 @@ object BatteryHealthCalculator {
         return calculateFromWeightedSamples(
             design,
             sessions.map { WeightedSample(it.estimatedCapacityMah, (it.qualityPercent / 100.0).coerceIn(0.25, 1.0)) },
+            useEvenMedian = false,
         )
     }
 
-    private fun calculateFromWeightedSamples(design: Double, samples: List<WeightedSample>): Result {
+    private fun calculateFromWeightedSamples(
+        design: Double,
+        samples: List<WeightedSample>,
+        useEvenMedian: Boolean,
+    ): Result {
         val sorted = samples.sortedBy { it.capacityMah }
         val totalWeight = sorted.sumOf { it.weight }
         var accumulated = 0.0
-        val estimated = sorted.firstOrNull { sample ->
-            accumulated += sample.weight
-            accumulated >= totalWeight / 2.0
-        }?.capacityMah ?: sorted.last().capacityMah
+        val estimated = if (useEvenMedian && sorted.size % 2 == 0) {
+            val middle = sorted.size / 2
+            (sorted[middle - 1].capacityMah + sorted[middle].capacityMah) / 2.0
+        } else {
+            sorted.firstOrNull { sample ->
+                accumulated += sample.weight
+                accumulated >= totalWeight / 2.0
+            }?.capacityMah ?: sorted.last().capacityMah
+        }
         val averageQuality = (samples.sumOf { it.weight } / samples.size).coerceIn(0.25, 1.0)
         val countConfidence = when (samples.size) {
             1 -> 20
