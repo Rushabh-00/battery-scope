@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import com.batteryscope.app.R
 import com.batteryscope.app.battery.BatteryRuntime
+import com.batteryscope.app.battery.BatterySnapshot
 import com.batteryscope.app.settings.AppSettings
 import com.batteryscope.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -19,6 +21,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class BatteryMonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -49,35 +52,76 @@ class BatteryMonitoringService : Service() {
                     .onSuccess { snapshot ->
                         getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification(snapshot))
                     }
-                delay(settings.backgroundUpdateIntervalMs)
+                delay(settings.updateIntervalMs)
             }
             stopSelf()
         }
     }
 
-    private fun buildNotification(snapshot: com.batteryscope.app.battery.BatterySnapshot?): Notification {
-        val text = snapshot?.let {
-            buildString {
-                append("${it.levelPercent}%")
-                it.powerW?.let { power -> append(" • ${String.format(java.util.Locale.US, "%.1f", power)} W") }
-                append(if (it.charging) " • charging" else " • on battery")
-            }
-        } ?: "Background battery monitoring is starting"
+    private fun buildNotification(snapshot: BatterySnapshot?): Notification {
+        val notificationIcon = settings.notificationIcon
+        val entries = settings.notificationEntries
+        val primary = snapshot?.let { formatMetric(it, notificationIcon) }
+        val title = if (primary != null) "BatteryScope • $primary" else "BatteryScope • monitoring"
+        val detailLines = snapshot?.let { value ->
+            buildList {
+                entries.sortedBy { it.ordinal }.forEach { metric ->
+                    add(formatMetric(value, metric))
+                }
+                if (settings.notificationChargeTimeEstimate) {
+                    formatChargeTimeEstimate(value)?.let(::add)
+                }
+            }.filter { it.isNotBlank() }
+        }.orEmpty()
+        val content = when {
+            detailLines.isNotEmpty() -> detailLines.first()
+            else -> "Background battery monitoring is starting"
+        }
+
         val openIntent = PendingIntent.getActivity(
             this,
             10,
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(com.batteryscope.app.R.drawable.ic_stat_battery)
-            .setContentTitle("BatteryScope • monitoring")
-            .setContentText(text)
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_battery)
+            .setContentTitle(title)
+            .setContentText(content)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setContentIntent(openIntent)
-            .build()
+
+        if (detailLines.size > 1) {
+            builder.setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n")))
+        }
+        return builder.build()
+    }
+
+    private fun formatMetric(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric): String = when (metric) {
+        AppSettings.NotificationMetric.POWER -> "Power ${snapshot.powerW?.let { "${f1(it)} W" } ?: "—"}"
+        AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let { currentText(it) } ?: "—"}"
+        AppSettings.NotificationMetric.CHARGE -> "Energy ${snapshot.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—"}"
+        AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let { "${f1(it)} °C" } ?: "—"}"
+        AppSettings.NotificationMetric.VOLTAGE -> "Voltage ${snapshot.voltageV?.let { "${f1(it)} V" } ?: "—"}"
+        AppSettings.NotificationMetric.ENERGY -> "Energy ${snapshot.energyWh?.let { "${f1(it)} Wh" } ?: "—"}"
+        AppSettings.NotificationMetric.PERCENT -> "Charge level ${snapshot.levelPercent}%"
+    }
+
+    private fun formatChargeTimeEstimate(snapshot: BatterySnapshot): String? {
+        if (!snapshot.charging || snapshot.full) return null
+        val remainingMah = snapshot.remainingMah ?: return null
+        val capacityMah = snapshot.batteryCapacityMah ?: return null
+        val currentA = kotlin.math.abs(snapshot.currentA ?: return null)
+        if (currentA < 0.01) return null
+        val missingMah = (capacityMah - remainingMah).coerceAtLeast(0.0)
+        if (missingMah <= 0.0) return null
+        val minutes = (missingMah / (currentA * 1000.0) * 60.0).toLong().coerceAtLeast(1L)
+        val hours = minutes / 60
+        val remainder = minutes % 60
+        return if (hours > 0) "Charge time ≈ ${hours}h ${remainder}m" else "Charge time ≈ ${remainder}m"
     }
 
     private fun startForegroundCompat(notification: Notification) {
@@ -107,6 +151,10 @@ class BatteryMonitoringService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun currentText(value: Double) = String.format(Locale.US, "%.2f A", value)
+    private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
+    private fun f2(value: Double) = String.format(Locale.US, "%.2f", value)
 
     private companion object {
         const val CHANNEL_ID = "battery_monitoring"
