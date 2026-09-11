@@ -11,8 +11,8 @@ android {
         applicationId = "com.batteryscope.app"
         minSdk = 28
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
     }
 
     buildTypes {
