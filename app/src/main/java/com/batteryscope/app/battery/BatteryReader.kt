@@ -16,6 +16,7 @@ class BatteryReader(context: Context) {
     private val sessionAnalyzer = BatterySessionAnalyzer(appContext)
     private val settings = AppSettings(appContext)
     private val currentReader = CurrentReader(batteryManager, settings.invertChargingPolarity)
+    private var cachedDesignCapacityMah: Double? = null
 
     fun read(): BatterySnapshot {
         currentReader.invertChargingPolarity = settings.invertChargingPolarity
@@ -28,10 +29,15 @@ class BatteryReader(context: Context) {
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
         val full = status == BatteryManager.BATTERY_STATUS_FULL || levelPercent >= 100
         val voltageV = (intent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0).takeIf { it > 0 }?.div(1000.0)
-        val temperatureC = (intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }?.div(10.0)
+        val temperatureC = (intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE)
+            .takeIf { it != Int.MIN_VALUE }?.div(10.0)
         val remainingMah = readChargeCounterMah()
         val currentA = currentReader.readAmps()
-        val designCapacityMah = capacityPreferences.designCapacityMah ?: capacityReader.read(voltageV).designMah
+        val designCapacityMah = capacityPreferences.designCapacityMah
+            ?: cachedDesignCapacityMah
+            ?: capacityReader.read(voltageV).designMah.also { detected ->
+                if (detected != null) cachedDesignCapacityMah = detected
+            }
         val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
         val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
         val base = BatterySnapshot(
@@ -59,11 +65,15 @@ class BatteryReader(context: Context) {
 
 class BatteryCapacityReader {
     data class Result(val designMah: Double?)
+
     fun read(voltageV: Double?): Result {
         val dirs = File("/sys/class/power_supply").listFiles().orEmpty()
-        val designMah = dirs.asSequence().mapNotNull { readCapacityMah(it, "charge_full_design", voltageV) ?: readCapacityMah(it, "energy_full_design", voltageV) }.firstOrNull()
+        val designMah = dirs.asSequence()
+            .mapNotNull { readCapacityMah(it, "charge_full_design", voltageV) ?: readCapacityMah(it, "energy_full_design", voltageV) }
+            .firstOrNull()
         return Result(designMah)
     }
+
     private fun readCapacityMah(dir: File, name: String, voltageV: Double?): Double? {
         val file = File(dir, name)
         if (!file.isFile || !file.canRead()) return null
@@ -72,7 +82,9 @@ class BatteryCapacityReader {
         val value = if (name.startsWith("energy_")) {
             val voltageMv = voltageV?.times(1000.0)?.takeIf { it > 0.0 } ?: return null
             raw / voltageMv
-        } else if (raw > 30_000.0) raw / 1000.0 else raw
+        } else {
+            if (raw > 30_000.0) raw / 1000.0 else raw
+        }
         return value.takeIf { it in 100.0..30_000.0 }
     }
 }
