@@ -6,9 +6,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
-import com.batteryscope.app.R
 import com.batteryscope.app.battery.BatteryRuntime
 import com.batteryscope.app.battery.BatterySnapshot
 import com.batteryscope.app.settings.AppSettings
@@ -28,6 +33,13 @@ class BatteryMonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var monitorJob: Job? = null
     private lateinit var settings: AppSettings
+    private var iconBitmap: Bitmap? = null
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.DEFAULT_BOLD
+        style = Paint.Style.FILL
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -51,7 +63,10 @@ class BatteryMonitoringService : Service() {
             while (isActive && settings.backgroundMonitoringEnabled) {
                 runCatching { BatteryRuntime.read(this@BatteryMonitoringService) }
                     .onSuccess { snapshot ->
-                        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification(snapshot))
+                        getSystemService(NotificationManager::class.java)?.notify(
+                            NOTIFICATION_ID,
+                            buildNotification(snapshot),
+                        )
                     }
                 delay(settings.updateIntervalMs)
             }
@@ -61,7 +76,9 @@ class BatteryMonitoringService : Service() {
 
     private fun buildNotification(snapshot: BatterySnapshot?): Notification {
         val iconMetric = settings.notificationIcon
-        val entryMetrics = settings.notificationEntries.filter { it != iconMetric }.sortedBy { it.ordinal }
+        val entryMetrics = settings.notificationEntries
+            .filter { it != iconMetric }
+            .sortedBy { it.ordinal }
         val headline = snapshot?.let { formatCompactMetric(it, iconMetric) } ?: "Monitoring"
         val detailLines = snapshot?.let { value ->
             buildList {
@@ -79,7 +96,7 @@ class BatteryMonitoringService : Service() {
         )
 
         val builder = Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_battery)
+            .setSmallIcon(snapshot?.let { renderMetricIcon(it, iconMetric) } ?: renderPlaceholderIcon(iconMetric))
             .setContentTitle(headline)
             .setContentText(entryMetrics.joinToString("   ") { formatCompactMetric(snapshot, it) }.ifBlank { "BatteryScope • monitoring" })
             .setOngoing(true)
@@ -91,6 +108,69 @@ class BatteryMonitoringService : Service() {
             builder.setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n")))
         }
         return builder.build()
+    }
+
+    private fun renderMetricIcon(
+        snapshot: BatterySnapshot,
+        metric: AppSettings.NotificationMetric,
+    ): Icon = renderIcon(iconParts(snapshot, metric).first, iconParts(snapshot, metric).second)
+
+    private fun renderPlaceholderIcon(metric: AppSettings.NotificationMetric): Icon =
+        renderIcon("—", iconUnit(metric))
+
+    private fun renderIcon(value: String, unit: String): Icon {
+        val density = resources.displayMetrics.density
+        val size = (48f * density).toInt()
+        val bitmap = iconBitmap?.takeIf { it.width == size } ?: Bitmap.createBitmap(
+            size,
+            size,
+            Bitmap.Config.ALPHA_8,
+        ).also { iconBitmap = it }
+        bitmap.eraseColor(Color.TRANSPARENT)
+
+        val canvas = Canvas(bitmap)
+        val maxWidth = size * 0.92f
+
+        iconPaint.textSize = 40f * density
+        val measured = iconPaint.measureText(value)
+        if (measured > maxWidth && measured > 0f) {
+            iconPaint.textSize *= maxWidth / measured
+        }
+        canvas.drawText(value, size / 2f, size * 0.62f, iconPaint)
+
+        iconPaint.textSize = 18f * density
+        canvas.drawText(unit, size / 2f, size * 0.94f, iconPaint)
+        return Icon.createWithBitmap(bitmap)
+    }
+
+    private fun iconParts(
+        snapshot: BatterySnapshot,
+        metric: AppSettings.NotificationMetric,
+    ): Pair<String, String> = when (metric) {
+        AppSettings.NotificationMetric.POWER ->
+            (snapshot.powerW?.let { f1(it) } ?: "—") to "W"
+        AppSettings.NotificationMetric.CURRENT ->
+            (snapshot.currentA?.let { String.format(Locale.US, "%.2f", it) } ?: "—") to "A"
+        AppSettings.NotificationMetric.CHARGE ->
+            (snapshot.remainingMah?.let { f2(it / 1000.0) } ?: "—") to "Ah"
+        AppSettings.NotificationMetric.TEMPERATURE ->
+            (snapshot.temperatureC?.let { f0(it) } ?: "—") to "°C"
+        AppSettings.NotificationMetric.VOLTAGE ->
+            (snapshot.voltageV?.let { f1(it) } ?: "—") to "V"
+        AppSettings.NotificationMetric.ENERGY ->
+            (snapshot.energyWh?.let { f1(it) } ?: "—") to "Wh"
+        AppSettings.NotificationMetric.PERCENT ->
+            (snapshot.levelPercent?.toString() ?: "—") to "%"
+    }
+
+    private fun iconUnit(metric: AppSettings.NotificationMetric): String = when (metric) {
+        AppSettings.NotificationMetric.POWER -> "W"
+        AppSettings.NotificationMetric.CURRENT -> "A"
+        AppSettings.NotificationMetric.CHARGE -> "Ah"
+        AppSettings.NotificationMetric.TEMPERATURE -> "°C"
+        AppSettings.NotificationMetric.VOLTAGE -> "V"
+        AppSettings.NotificationMetric.ENERGY -> "Wh"
+        AppSettings.NotificationMetric.PERCENT -> "%"
     }
 
     private fun formatCompactMetric(snapshot: BatterySnapshot?, metric: AppSettings.NotificationMetric): String {
@@ -153,6 +233,8 @@ class BatteryMonitoringService : Service() {
     override fun onDestroy() {
         monitorJob?.cancel()
         scope.cancel()
+        iconBitmap?.recycle()
+        iconBitmap = null
         super.onDestroy()
     }
 
