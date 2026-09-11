@@ -378,7 +378,7 @@ private fun SettingsScreen(
                     }
                 }
                 item {
-                    Section("Background & startup") {
+                    Section("Background monitoring") {
                         ToggleRow(
                             "Background monitoring",
                             "Keeps telemetry alive outside the app with an ongoing low-priority notification.",
@@ -394,18 +394,8 @@ private fun SettingsScreen(
                             }
                         }
                         Spacer(Modifier.height(12.dp))
-                        ToggleRow(
-                            "Start on boot",
-                            "Restarts monitoring after boot or an app update when background monitoring is enabled.",
-                            startOnBoot,
-                            enabled = backgroundEnabled,
-                        ) {
-                            startOnBoot = it
-                            settings.startOnBoot = it
-                        }
-                        Spacer(Modifier.height(10.dp))
                         Text(
-                            "Background monitoring uses the same update interval as Foreground telemetry: ${formatInterval(interval)}.",
+                            "Uses the same update interval as Foreground telemetry: ${formatInterval(interval)}.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -423,6 +413,25 @@ private fun SettingsScreen(
                         }
                         Text(
                             "Some manufacturers also provide their own Auto-start/background-activity switch. BatteryScope cannot change those OEM-only controls automatically.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                item {
+                    Section("Start on boot") {
+                        ToggleRow(
+                            "Start on boot",
+                            "Starts BatteryScope background monitoring after boot or an app update.",
+                            startOnBoot,
+                        ) {
+                            startOnBoot = it
+                            settings.startOnBoot = it
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (backgroundEnabled) "Background monitoring is currently enabled, so this switch can start it automatically after boot."
+                            else "Background monitoring is off. Enable it above for this switch to have an effect at boot.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
