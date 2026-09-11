@@ -194,13 +194,14 @@ class CapacitySessionTracker(context: Context) {
     }
 
     private fun calculateLearnedCapacity(items: List<FullChargeSession>): Double? {
-        val count = minOf(items.size, MAX_HEALTH_SESSIONS)
-        if (count == 0) return null
-        var total = 0.0
-        for (index in items.size - count until items.size) {
-            total += items[index].estimatedCapacityMah
+        val samples = items.takeLast(MAX_HEALTH_SESSIONS).map { it.estimatedCapacityMah }.filter { it > 0.0 && it.isFinite() }.sorted()
+        if (samples.isEmpty()) return null
+        val middle = samples.size / 2
+        return if (samples.size % 2 == 0) {
+            (samples[middle - 1] + samples[middle]) / 2.0
+        } else {
+            samples[middle]
         }
-        return total / count
     }
 
     companion object {
