@@ -8,6 +8,8 @@ class CurrentReader(
     private val batteryManager: BatteryManager?,
     var invertChargingPolarity: Boolean,
 ) {
+    private val currentFiles = discoverCurrentFiles()
+
     fun readAmps(): Double? {
         val candidates = ArrayList<Candidate>()
         addPropertyCandidate(candidates, BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
@@ -32,9 +34,7 @@ class CurrentReader(
     }
 
     private fun readSysfsCandidates(target: MutableList<Candidate>) {
-        val root = File("/sys/class/power_supply")
-        for (entry in root.listFiles().orEmpty()) {
-            val path = File(entry, "current_now")
+        for (path in currentFiles) {
             if (!path.isFile || !path.canRead()) continue
             val raw = path.readText().trim().toDoubleOrNull() ?: continue
             if (raw == 0.0) continue
@@ -76,6 +76,12 @@ class CurrentReader(
     }
 
     private fun Double.copySignFrom(source: Double): Double = if (source < 0.0) -this else this
+
+    private fun discoverCurrentFiles(): List<File> = File("/sys/class/power_supply")
+        .listFiles()
+        .orEmpty()
+        .map { File(it, "current_now") }
+        .filter { it.isFile && it.canRead() }
 
     companion object {
         private const val MIN_PLAUSIBLE_AMPS = 0.005
