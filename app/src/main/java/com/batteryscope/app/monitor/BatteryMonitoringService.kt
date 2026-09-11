@@ -82,7 +82,6 @@ class BatteryMonitoringService : Service() {
         val headline = snapshot?.let { formatCompactMetric(it, iconMetric) } ?: "Monitoring"
         val detailLines = snapshot?.let { value ->
             buildList {
-                add(formatMetric(value, iconMetric))
                 entryMetrics.forEach { add(formatMetric(value, it)) }
                 if (settings.notificationChargeTimeEstimate) formatChargeTimeEstimate(value)?.let(::add)
             }
@@ -104,7 +103,7 @@ class BatteryMonitoringService : Service() {
             .setCategory(Notification.CATEGORY_SERVICE)
             .setContentIntent(openIntent)
 
-        if (detailLines.size > 1) {
+        if (detailLines.isNotEmpty()) {
             builder.setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n")))
         }
         return builder.build()
@@ -150,11 +149,11 @@ class BatteryMonitoringService : Service() {
         AppSettings.NotificationMetric.POWER ->
             (snapshot.powerW?.let { f1(it) } ?: "—") to "W"
         AppSettings.NotificationMetric.CURRENT ->
-            (snapshot.currentA?.let { String.format(Locale.US, "%.2f", it) } ?: "—") to "A"
+            (snapshot.currentA?.let { f1(it) } ?: "—") to "A"
         AppSettings.NotificationMetric.CHARGE ->
-            (snapshot.remainingMah?.let { f2(it / 1000.0) } ?: "—") to "Ah"
+            (snapshot.remainingMah?.let { f1(it / 1000.0) } ?: "—") to "Ah"
         AppSettings.NotificationMetric.TEMPERATURE ->
-            (snapshot.temperatureC?.let { f0(it) } ?: "—") to "°C"
+            (snapshot.temperatureC?.let { f1(it) } ?: "—") to "°C"
         AppSettings.NotificationMetric.VOLTAGE ->
             (snapshot.voltageV?.let { f1(it) } ?: "—") to "V"
         AppSettings.NotificationMetric.ENERGY ->
