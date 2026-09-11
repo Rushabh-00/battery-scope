@@ -41,7 +41,7 @@ class BatteryReader(context: Context) {
             }
         val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
         val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
-        val base = BatterySnapshot(
+        val snapshot = BatterySnapshot(
             levelPercent = levelPercent,
             charging = charging,
             full = full,
@@ -50,12 +50,11 @@ class BatteryReader(context: Context) {
             temperatureC = temperatureC,
             remainingMah = remainingMah,
             batteryCapacityMah = designCapacityMah,
-            estimatedCapacityMah = null,
             powerW = powerW,
             energyWh = energyWh,
         )
-        val analysis = sessionAnalyzer.update(base)
-        return base.copy(estimatedCapacityMah = analysis.learnedCapacityMah, sessionAnalysis = analysis)
+        val analysis = sessionAnalyzer.update(snapshot)
+        return snapshot.copy(sessionAnalysis = analysis)
     }
 
     private fun readChargeCounterMah(): Double? {
