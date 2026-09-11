@@ -22,6 +22,6 @@ class CapacitySessionEstimatorTest {
 
     @Test
     fun rejectsOutOfRangeCapacity() {
-        assertNull(CapacitySessionEstimator.estimate(10000.0, 15, 90))
+        assertNull(CapacitySessionEstimator.estimate(10000.0, 15, 35))
     }
 }
