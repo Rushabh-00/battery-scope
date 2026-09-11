@@ -1,13 +1,19 @@
 package com.batteryscope.app.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,9 +61,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.batteryscope.app.battery.BatteryReader
+import com.batteryscope.app.battery.BatteryRuntime
 import com.batteryscope.app.battery.BatterySessionAnalyzer
 import com.batteryscope.app.battery.BatterySnapshot
 import com.batteryscope.app.battery.CapacityPreferences
+import com.batteryscope.app.monitor.BatteryMonitoringController
 import com.batteryscope.app.settings.AppSettings
 import com.batteryscope.app.settings.UiPreferences
 import kotlinx.coroutines.Dispatchers
@@ -82,7 +90,8 @@ class MainActivity : ComponentActivity() {
             var accent by remember { mutableStateOf(ui.accentColorArgb) }
             var colorStyle by remember { mutableStateOf(ui.colorStyle) }
             BatteryScopeTheme(theme, colorMode, accent, colorStyle) {
-                BatteryScopeApp(theme, colorMode, accent, colorStyle, settings,
+                BatteryScopeApp(
+                    theme, colorMode, accent, colorStyle, settings,
                     onTheme = { theme = it; ui.theme = it },
                     onColorMode = { colorMode = it; ui.colorMode = it },
                     onAccent = { accent = it; ui.accentColorArgb = it },
@@ -118,21 +127,31 @@ private fun BatteryScopeApp(
 private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
     val context = LocalContext.current
     val reader = remember(context) { BatteryReader(context) }
-    var battery by remember { mutableStateOf<BatterySnapshot?>(null) }
-    var lastUpdatedAt by remember { mutableStateOf(0L) }
+    var battery by remember { mutableStateOf<BatterySnapshot?>(BatteryRuntime.latest()) }
+    var lastUpdatedAt by remember { mutableStateOf(if (battery != null) System.currentTimeMillis() else 0L) }
     var readError by remember { mutableStateOf(false) }
     val interval = settings.updateIntervalMs
+    val backgroundMonitoring = settings.backgroundMonitoringEnabled
 
-    LaunchedEffect(reader, interval) {
+    LaunchedEffect(backgroundMonitoring, interval) {
         while (isActive) {
-            runCatching { withContext(Dispatchers.IO) { reader.read() } }
-                .onSuccess {
+            if (backgroundMonitoring) {
+                BatteryRuntime.latest()?.let {
                     battery = it
                     lastUpdatedAt = System.currentTimeMillis()
                     readError = false
                 }
-                .onFailure { readError = true }
-            delay(interval)
+                delay(500)
+            } else {
+                runCatching { withContext(Dispatchers.IO) { reader.read() } }
+                    .onSuccess {
+                        battery = it
+                        lastUpdatedAt = System.currentTimeMillis()
+                        readError = false
+                    }
+                    .onFailure { readError = true }
+                delay(interval)
+            }
         }
     }
 
@@ -143,24 +162,17 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = PaddingValues(18.dp),
             ) {
-                item { Header(battery?.charging == true, openSettings) }
+                item { Header(battery?.charging == true, backgroundMonitoring, openSettings) }
+                item { MonitoringBanner(settings, battery) }
                 if (readError && battery == null) {
-                    item {
-                        Card(shape = RoundedCornerShape(24.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                                Text("Battery data unavailable", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.height(6.dp))
-                                Text("BatteryScope will retry automatically. Make sure the device exposes its battery telemetry to Android.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
+                    item { EmptyCard("Battery data unavailable", "BatteryScope will retry automatically.") }
                 }
                 val value = battery
                 if (value == null) {
-                    if (!readError) item { Card { Text("Reading battery telemetry…", Modifier.padding(28.dp)) } }
+                    if (!readError) item { EmptyCard("Reading battery telemetry…", "The first sample will appear here.") }
                 } else {
                     item { Hero(value, settings) }
-                    item { LiveMeta(lastUpdatedAt, interval, readError) }
+                    item { LiveMeta(lastUpdatedAt, interval, readError, backgroundMonitoring) }
                     value.sessionAnalysis?.let { analysis ->
                         item { CapacityHealthCard(value, analysis) }
                         item { HistoryCard(analysis) }
@@ -172,28 +184,50 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
 }
 
 @Composable
-private fun Header(charging: Boolean, onSettings: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+private fun Header(charging: Boolean, backgroundMonitoring: Boolean, onSettings: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text("BatteryScope", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(
-                if (charging) "Live telemetry • charging" else "Live telemetry • on battery",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(if (charging) "Live telemetry • charging" else "Live telemetry • on battery", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        OutlinedButton(onClick = onSettings) { Text("Settings") }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(if (backgroundMonitoring) "Monitoring on" else "Live only", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            OutlinedButton(onClick = onSettings) { Text("Settings") }
+        }
     }
 }
 
 @Composable
-private fun Hero(battery: BatterySnapshot, settings: AppSettings) = Card(
-    shape = RoundedCornerShape(28.dp),
-    colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer),
+private fun MonitoringBanner(settings: AppSettings, battery: BatterySnapshot?) = Card(
+    shape = RoundedCornerShape(22.dp),
+    colors = CardDefaults.cardColors(if (settings.backgroundMonitoringEnabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant),
 ) {
+    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(12.dp).clip(CircleShape).background(if (settings.backgroundMonitoringEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline))
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(if (settings.backgroundMonitoringEnabled) "Background monitoring is active" else "Background monitoring is off", fontWeight = FontWeight.SemiBold)
+            Text(
+                if (settings.backgroundMonitoringEnabled) "${battery?.levelPercent ?: "—"}% • ${formatInterval(settings.backgroundUpdateIntervalMs)} sampling • persistent status notification"
+                else "Enable it from Settings for optional monitoring after you leave the app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyCard(title: String, body: String) = Card(shape = RoundedCornerShape(24.dp)) {
+    Column(Modifier.fillMaxWidth().padding(22.dp)) {
+        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun Hero(battery: BatterySnapshot, settings: AppSettings) = Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) {
     Column(Modifier.fillMaxWidth().padding(22.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
@@ -201,7 +235,7 @@ private fun Hero(battery: BatterySnapshot, settings: AppSettings) = Card(
                 Text("${battery.levelPercent}%", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Stored energy (est.)", style = MaterialTheme.typography.labelLarge)
+                Text("Stored energy", style = MaterialTheme.typography.labelLarge)
                 Text(battery.energyWh?.let { "${f2(it)} Wh" } ?: "—", style = MaterialTheme.typography.titleLarge)
                 Text(battery.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—")
             }
@@ -228,12 +262,13 @@ private fun Mini(label: String, value: String) = Column {
 }
 
 @Composable
-private fun LiveMeta(lastUpdatedAt: Long, interval: Long, readError: Boolean) {
+private fun LiveMeta(lastUpdatedAt: Long, interval: Long, readError: Boolean, backgroundMonitoring: Boolean) {
     val age = if (lastUpdatedAt > 0) ((System.currentTimeMillis() - lastUpdatedAt) / 1000L).coerceAtLeast(0L) else 0L
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(
             when {
-                readError -> "Telemetry read recovered with the last good sample"
+                readError -> "Last good telemetry retained"
+                backgroundMonitoring -> "Reading shared background telemetry"
                 age == 0L -> "Updated just now"
                 age == 1L -> "Updated 1 second ago"
                 else -> "Updated ${age}s ago"
@@ -241,7 +276,7 @@ private fun LiveMeta(lastUpdatedAt: Long, interval: Long, readError: Boolean) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text("Every ${formatInterval(interval)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (backgroundMonitoring) "Background • ${formatInterval(interval)} UI refresh" else "Every ${formatInterval(interval)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -253,17 +288,26 @@ private fun CapacityHealthCard(battery: BatterySnapshot, analysis: BatterySessio
         Stat("Design capacity", battery.batteryCapacityMah?.let { "${f0(it)} mAh" } ?: "Not detected / not set")
         Stat("Learned capacity", analysis.learnedCapacityMah?.let { "${f0(it)} mAh" } ?: "Awaiting completed session")
         Stat("Latest full-charge", analysis.latestSessionCapacityMah?.let { "${f0(it)} mAh" } ?: "—")
+        Stat("Session quality", analysis.latestSessionQualityPercent?.let { "$it%" } ?: "—")
         Stat("Battery health", analysis.healthPercent?.let { "${f0(it)}%" } ?: "Awaiting completed session")
         Stat("Health confidence", if (analysis.healthPercent != null) "${analysis.healthConfidencePercent}%" else "—")
         Stat("Wear", analysis.wearMah?.let { "${f0(it)} mAh" } ?: "—")
         Stat("Remaining charge", battery.remainingMah?.let { "${f0(it)} mAh" } ?: "Unavailable")
+        analysis.capacityTrend?.let { trend ->
+            val label = when (trend.direction) {
+                com.batteryscope.app.battery.CapacityTrendCalculator.Direction.IMPROVING -> "Improving"
+                com.batteryscope.app.battery.CapacityTrendCalculator.Direction.STABLE -> "Stable"
+                com.batteryscope.app.battery.CapacityTrendCalculator.Direction.DECLINING -> "Declining"
+            }
+            Stat("Capacity trend", "$label • ${if (trend.changeMah >= 0) "+" else ""}${f0(trend.changeMah)} mAh")
+        }
         Stat("Charge", "${f0(analysis.chargeMah)} mAh • ${duration(analysis.chargeTimeMs)}")
         Stat("Discharge", "${f0(analysis.dischargeMah)} mAh • ${duration(analysis.dischargeTimeMs)}")
         Spacer(Modifier.height(12.dp))
         HorizontalDivider()
         Spacer(Modifier.height(12.dp))
         Text(
-            "A session is valid only after the battery has been sampled at 15% or lower while discharging, then charged to full. Health uses the median of up to five completed sessions; confidence increases as independent sessions accumulate.",
+            "A valid session starts at 15% or lower and completes at full. Health uses the quality-weighted median of recent independent sessions.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -271,10 +315,7 @@ private fun CapacityHealthCard(battery: BatterySnapshot, analysis: BatterySessio
 }
 
 @Composable
-private fun Stat(label: String, value: String) = Row(
-    Modifier.fillMaxWidth().padding(vertical = 3.dp),
-    horizontalArrangement = Arrangement.SpaceBetween,
-) {
+private fun Stat(label: String, value: String) = Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
     Text(label, Modifier.weight(1f))
     Text(value, Modifier.weight(1f), textAlign = TextAlign.End, fontWeight = FontWeight.Medium)
 }
@@ -293,7 +334,7 @@ private fun HistoryCard(analysis: BatterySessionAnalyzer.Analysis) = Card(shape 
                     Text("${f0(session.estimatedCapacityMah)} mAh", fontWeight = FontWeight.SemiBold)
                     Text(date(session.completedAtMs), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("${f0(session.chargedMah)} mAh charged • ${duration(session.durationMs)} • started ${session.startLevelPercent}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${f0(session.chargedMah)} mAh • quality ${session.qualityPercent}% • ${duration(session.durationMs)} • started ${session.startLevelPercent}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -314,21 +355,84 @@ private fun SettingsScreen(
 ) {
     BackHandler { onBack() }
     val context = LocalContext.current
+    val activity = context as? Activity
     val capacityPreferences = remember(context) { CapacityPreferences(context) }
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
     var tempUnit by remember { mutableStateOf(settings.temperatureUnit) }
     var invert by remember { mutableStateOf(settings.invertChargingPolarity) }
     var interval by remember { mutableStateOf(settings.updateIntervalMs) }
+    var backgroundEnabled by remember { mutableStateOf(settings.backgroundMonitoringEnabled) }
+    var startOnBoot by remember { mutableStateOf(settings.startOnBoot) }
+    var backgroundInterval by remember { mutableStateOf(settings.backgroundUpdateIntervalMs) }
     var capacity by remember { mutableStateOf(capacityPreferences.designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
     var showColorDialog by remember { mutableStateOf(false) }
+    var optimizationIgnored by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+
     Scaffold { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = MaterialTheme.colorScheme.background) {
             LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(18.dp)) {
                 item {
                     Column {
                         Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        Text("Customize BatteryScope", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Make BatteryScope look better and run exactly as much as you want.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                item {
+                    Section("Background & startup") {
+                        ToggleRow(
+                            "Background monitoring",
+                            "Keeps telemetry alive outside the app with an ongoing low-priority notification.",
+                            backgroundEnabled,
+                        ) {
+                            backgroundEnabled = it
+                            settings.backgroundMonitoringEnabled = it
+                            if (it) {
+                                requestNotificationPermission(activity)
+                                BatteryMonitoringController.start(context)
+                            } else {
+                                BatteryMonitoringController.stop(context)
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        ToggleRow(
+                            "Start on boot",
+                            "Restarts monitoring after boot or an app update when background monitoring is enabled.",
+                            startOnBoot,
+                            enabled = backgroundEnabled,
+                        ) {
+                            startOnBoot = it
+                            settings.startOnBoot = it
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Text("Background sampling", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                        Text("${formatInterval(backgroundInterval)} • slower sampling uses less battery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Slider(
+                            value = backgroundInterval.toFloat(),
+                            onValueChange = { backgroundInterval = snapBackgroundInterval(it) },
+                            onValueChangeFinished = { settings.backgroundUpdateIntervalMs = backgroundInterval },
+                            valueRange = 5_000f..60_000f,
+                            steps = 10,
+                            enabled = backgroundEnabled,
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("5 s"); Text("60 s") }
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedButton(onClick = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                            context.startActivity(intent)
+                        }, Modifier.fillMaxWidth()) { Text("Open app battery settings") }
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = {
+                            requestBatteryOptimization(context)
+                            optimizationIgnored = isIgnoringBatteryOptimizations(context)
+                        }, Modifier.fillMaxWidth(), enabled = !optimizationIgnored) {
+                            Text(if (optimizationIgnored) "Battery optimization already relaxed" else "Allow unrestricted battery use")
+                        }
+                        Text(
+                            "Some manufacturers also provide their own Auto-start/background-activity switch. BatteryScope cannot change those OEM-only controls automatically.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
                 item {
@@ -366,31 +470,19 @@ private fun SettingsScreen(
                         }
                         if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        Text("Used for health and wear comparison. Learned capacity is shown only after a valid full-charge session completes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Used for health and wear comparison. Learned capacity appears only after a valid full-charge session.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 item {
                     Section("Telemetry") {
-                        Text("Update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                        Text("Controls live telemetry refresh rate.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Foreground update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                        Text("Controls live telemetry refresh when background monitoring is off.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Text(formatInterval(interval), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Slider(
-                            value = interval.toFloat(),
-                            onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) },
-                            onValueChangeFinished = { settings.updateIntervalMs = interval },
-                            valueRange = 1_250f..10_000f,
-                            steps = 34,
-                        )
+                        Slider(value = interval.toFloat(), onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) }, onValueChangeFinished = { settings.updateIntervalMs = interval }, valueRange = 1_250f..10_000f, steps = 34)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("1.25 s"); Text("10 s") }
                         Spacer(Modifier.height(10.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                                Text("Invert charging polarity", style = MaterialTheme.typography.titleMedium)
-                                Text("Changes current sign live. Power follows the sign.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(checked = invert, onCheckedChange = { invert = it; settings.invertChargingPolarity = it })
-                        }
+                        ToggleRow("Invert charging polarity", "Changes current sign live. Power follows the sign.", invert) { invert = it; settings.invertChargingPolarity = it }
                     }
                 }
             }
@@ -405,6 +497,17 @@ private fun SettingsScreen(
             confirmButton = { TextButton(onClick = { parseHex(hex)?.let(onAccent); showColorDialog = false }) { Text("Apply") } },
             dismissButton = { TextButton(onClick = { showColorDialog = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, body: String, checked: Boolean, enabled: Boolean = true, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
@@ -426,15 +529,7 @@ private fun ChoiceRow(title: String, options: List<String>, selected: String, on
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         options.forEach { option ->
             val active = option == selected
-            Box(
-                Modifier.weight(1f)
-                    .clip(RoundedCornerShape(13.dp))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp))
-                    .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    .selectable(selected = active, onClick = { onSelected(option) }, role = Role.RadioButton)
-                    .padding(vertical = 9.dp),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(13.dp)).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp)).background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).selectable(selected = active, onClick = { onSelected(option) }, role = Role.RadioButton).padding(vertical = 9.dp), contentAlignment = Alignment.Center) {
                 Text(option, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
             }
         }
@@ -457,21 +552,42 @@ private fun ThemeColorPalette(selected: Long, onSelected: (Long) -> Unit) {
 @Composable
 private fun ColorDot(value: Long, selected: Long, onSelected: (Long) -> Unit) {
     val color = Color(value.toInt())
-    Box(
-        Modifier.size(40.dp)
-            .clip(CircleShape)
-            .background(color)
-            .border(if (value == selected) 3.dp else 0.dp, if (value == selected) Color.White else Color.Transparent, CircleShape)
-            .selectable(selected = value == selected, onClick = { onSelected(value) }, role = Role.RadioButton)
-            .padding(6.dp),
-        contentAlignment = Alignment.Center,
-    ) {}
+    Box(Modifier.size(40.dp).clip(CircleShape).background(color).border(if (value == selected) 3.dp else 0.dp, if (value == selected) Color.White else Color.Transparent, CircleShape).selectable(selected = value == selected, onClick = { onSelected(value) }, role = Role.RadioButton).padding(6.dp)) {}
+}
+
+private fun requestNotificationPermission(activity: Activity?) {
+    if (Build.VERSION.SDK_INT >= 33 && activity != null && activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4001)
+    }
+}
+
+private fun requestBatteryOptimization(context: android.content.Context) {
+    runCatching {
+        context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")))
+    }.recoverCatching {
+        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+}
+
+private fun isIgnoringBatteryOptimizations(context: android.content.Context): Boolean = runCatching {
+    val manager = context.getSystemService(PowerManager::class.java)
+    Build.VERSION.SDK_INT < 23 || manager?.isIgnoringBatteryOptimizations(context.packageName) == true
+}.getOrDefault(false)
+
+private fun snapBackgroundInterval(value: Float): Long = when {
+    value <= 7_500f -> 5_000L
+    value <= 12_500f -> 10_000L
+    value <= 17_500f -> 15_000L
+    value <= 25_000f -> 20_000L
+    value <= 37_500f -> 30_000L
+    value <= 45_000f -> 45_000L
+    else -> 60_000L
 }
 
 private fun currentText(value: Double, unit: AppSettings.CurrentUnit) = if (unit == AppSettings.CurrentUnit.AMPERE) "${f1(value)} A" else "${f0(value * 1000)} mA"
 private fun tempText(value: Double, unit: AppSettings.TemperatureUnit) = if (unit == AppSettings.TemperatureUnit.CELSIUS) "${f1(value)} °C" else "${f1(value * 9 / 5 + 32)} °F"
 private fun duration(ms: Long): String { if (ms <= 0) return "0 min"; val minutes = ms / 60_000; val hours = minutes / 60; return if (hours > 0) "${hours}h ${minutes % 60}m" else "${minutes}m" }
-private fun formatInterval(ms: Long) = if (ms == 1_250L) "1.25 s" else String.format(Locale.US, "%.2f s", ms / 1000.0)
+private fun formatInterval(ms: Long) = if (ms == 1_250L) "1.25 s" else if (ms % 1000L == 0L) "${ms / 1000}s" else String.format(Locale.US, "%.2f s", ms / 1000.0)
 private fun date(ms: Long) = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
 private fun f0(value: Double) = String.format(Locale.US, "%.0f", value)
 private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
