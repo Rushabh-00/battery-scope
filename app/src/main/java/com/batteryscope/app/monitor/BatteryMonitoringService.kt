@@ -156,11 +156,11 @@ class BatteryMonitoringService : Service() {
         AppSettings.NotificationMetric.POWER ->
             (snapshot.powerW?.let { f1(it) } ?: "—") to "W"
         AppSettings.NotificationMetric.CURRENT ->
-            (snapshot.currentA?.let { f1(it) } ?: "—") to "A"
+            (snapshot.currentA?.let { currentValue(it) } ?: "—") to currentUnitLabel()
         AppSettings.NotificationMetric.CHARGE ->
             (snapshot.remainingMah?.let { f1(it / 1000.0) } ?: "—") to "Ah"
         AppSettings.NotificationMetric.TEMPERATURE ->
-            (snapshot.temperatureC?.let { f1(it) } ?: "—") to "°C"
+            (snapshot.temperatureC?.let { temperatureValue(it) } ?: "—") to temperatureUnitLabel()
         AppSettings.NotificationMetric.VOLTAGE ->
             (snapshot.voltageV?.let { f1(it) } ?: "—") to "V"
         AppSettings.NotificationMetric.ENERGY ->
@@ -171,9 +171,9 @@ class BatteryMonitoringService : Service() {
 
     private fun iconUnit(metric: AppSettings.NotificationMetric): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "W"
-        AppSettings.NotificationMetric.CURRENT -> "A"
+        AppSettings.NotificationMetric.CURRENT -> currentUnitLabel()
         AppSettings.NotificationMetric.CHARGE -> "Ah"
-        AppSettings.NotificationMetric.TEMPERATURE -> "°C"
+        AppSettings.NotificationMetric.TEMPERATURE -> temperatureUnitLabel()
         AppSettings.NotificationMetric.VOLTAGE -> "V"
         AppSettings.NotificationMetric.ENERGY -> "Wh"
         AppSettings.NotificationMetric.PERCENT -> "%"
@@ -181,9 +181,9 @@ class BatteryMonitoringService : Service() {
 
     private fun formatMetric(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "Power ${snapshot.powerW?.let { "${f1(it)} W" } ?: "—"}"
-        AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let { currentText(it) } ?: "—"}"
+        AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let(::currentText) ?: "—"}"
         AppSettings.NotificationMetric.CHARGE -> "Charge ${snapshot.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—"}"
-        AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let { "${f1(it)} °C" } ?: "—"}"
+        AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let(::temperatureText) ?: "—"}"
         AppSettings.NotificationMetric.VOLTAGE -> "Voltage ${snapshot.voltageV?.let { "${f1(it)} V" } ?: "—"}"
         AppSettings.NotificationMetric.ENERGY -> "Energy ${snapshot.energyWh?.let { "${f1(it)} Wh" } ?: "—"}"
         AppSettings.NotificationMetric.PERCENT -> "Charge level ${snapshot.levelPercent}%"
@@ -202,6 +202,26 @@ class BatteryMonitoringService : Service() {
         val remainder = minutes % 60
         return if (hours > 0) "Charge time ≈ ${hours}h ${remainder}m" else "Charge time ≈ ${remainder}m"
     }
+
+    private fun currentValue(value: Double): String = when (settings.currentUnit) {
+        AppSettings.CurrentUnit.AMPERE -> f1(value)
+        AppSettings.CurrentUnit.MILLIAMPERE -> f0(value * 1000.0)
+    }
+
+    private fun currentText(value: Double): String =
+        "${currentValue(value)} ${currentUnitLabel()}"
+
+    private fun currentUnitLabel(): String = settings.currentUnit.value
+
+    private fun temperatureValue(valueC: Double): String = when (settings.temperatureUnit) {
+        AppSettings.TemperatureUnit.CELSIUS -> f1(valueC)
+        AppSettings.TemperatureUnit.FAHRENHEIT -> f1(valueC * 9.0 / 5.0 + 32.0)
+    }
+
+    private fun temperatureText(valueC: Double): String =
+        "${temperatureValue(valueC)} ${temperatureUnitLabel()}"
+
+    private fun temperatureUnitLabel(): String = settings.temperatureUnit.value
 
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= 34) {
@@ -233,7 +253,7 @@ class BatteryMonitoringService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun currentText(value: Double) = String.format(Locale.US, "%.2f A", value)
+    private fun f0(value: Double) = String.format(Locale.US, "%.0f", value)
     private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
     private fun f2(value: Double) = String.format(Locale.US, "%.2f", value)
 
