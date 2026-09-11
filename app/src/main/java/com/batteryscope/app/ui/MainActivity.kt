@@ -9,7 +9,8 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
+import androidx.activity.BackHandler
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -60,7 +61,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.batteryscope.app.battery.BatteryReader
 import com.batteryscope.app.battery.BatteryRuntime
 import com.batteryscope.app.battery.BatterySessionAnalyzer
 import com.batteryscope.app.battery.BatterySnapshot
@@ -126,7 +126,6 @@ private fun BatteryScopeApp(
 @Composable
 private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
     val context = LocalContext.current
-    val reader = remember(context) { BatteryReader(context) }
     var battery by remember { mutableStateOf<BatterySnapshot?>(BatteryRuntime.latest()) }
     var lastUpdatedAt by remember { mutableStateOf(if (battery != null) System.currentTimeMillis() else 0L) }
     var readError by remember { mutableStateOf(false) }
@@ -134,6 +133,16 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
     val backgroundMonitoring = settings.backgroundMonitoringEnabled
 
     LaunchedEffect(backgroundMonitoring, interval) {
+        if (BatteryRuntime.latest() == null) {
+            runCatching { withContext(Dispatchers.IO) { BatteryRuntime.read(context) } }
+                .onSuccess {
+                    battery = it
+                    lastUpdatedAt = System.currentTimeMillis()
+                    readError = false
+                }
+                .onFailure { readError = true }
+        }
+
         while (isActive) {
             if (backgroundMonitoring) {
                 BatteryRuntime.latest()?.let {
@@ -143,7 +152,7 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
                 }
                 delay(500)
             } else {
-                runCatching { withContext(Dispatchers.IO) { reader.read() } }
+                runCatching { withContext(Dispatchers.IO) { BatteryRuntime.read(context) } }
                     .onSuccess {
                         battery = it
                         lastUpdatedAt = System.currentTimeMillis()
