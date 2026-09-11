@@ -27,13 +27,35 @@ class AppSettings(context: Context) {
             .coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS)
         set(value) = preferences.edit().putLong(KEY_UPDATE_INTERVAL_MS, value.coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS)).apply()
 
+    var notificationEnabled: Boolean
+        get() {
+            if (!preferences.contains(KEY_NOTIFICATION_ENABLED)) {
+                val migratedValue = if (preferences.contains(KEY_BACKGROUND_MONITORING)) {
+                    preferences.getBoolean(KEY_BACKGROUND_MONITORING, false)
+                } else {
+                    true
+                }
+                preferences.edit()
+                    .putBoolean(KEY_NOTIFICATION_ENABLED, migratedValue)
+                    .apply()
+                return migratedValue
+            }
+            return preferences.getBoolean(KEY_NOTIFICATION_ENABLED, true)
+        }
+        set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_ENABLED, value).apply()
+
+    /** Compatibility alias for older persisted callers. */
     var backgroundMonitoringEnabled: Boolean
-        get() = preferences.getBoolean(KEY_BACKGROUND_MONITORING, false)
-        set(value) = preferences.edit().putBoolean(KEY_BACKGROUND_MONITORING, value).apply()
+        get() = notificationEnabled
+        set(value) { notificationEnabled = value }
 
     var startOnBoot: Boolean
         get() = preferences.getBoolean(KEY_START_ON_BOOT, false)
         set(value) = preferences.edit().putBoolean(KEY_START_ON_BOOT, value).apply()
+
+    var notificationPermissionRequested: Boolean
+        get() = preferences.getBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, false)
+        set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, value).apply()
 
     var notificationIcon: NotificationMetric
         get() = NotificationMetric.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, NotificationMetric.TEMPERATURE.value))
@@ -92,7 +114,9 @@ class AppSettings(context: Context) {
         const val KEY_INVERT_CHARGING_POLARITY = "invert_charging_polarity"
         const val KEY_UPDATE_INTERVAL_MS = "update_interval_ms"
         const val KEY_BACKGROUND_MONITORING = "background_monitoring"
+        const val KEY_NOTIFICATION_ENABLED = "notification_enabled"
         const val KEY_START_ON_BOOT = "start_on_boot"
+        const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
         const val KEY_NOTIFICATION_ICON = "notification_icon"
         const val KEY_NOTIFICATION_ENTRIES = "notification_entries"
         const val KEY_NOTIFICATION_CHARGE_TIME = "notification_charge_time"
