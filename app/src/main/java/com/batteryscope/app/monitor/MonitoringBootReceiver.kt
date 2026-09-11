@@ -7,10 +7,18 @@ import com.batteryscope.app.settings.AppSettings
 
 class MonitoringBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val settings = AppSettings(context)
-        if (settings.backgroundMonitoringEnabled && settings.startOnBoot) {
-            runCatching { BatteryMonitoringController.start(context) }
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED -> {
+                if (settings.notificationEnabled && settings.startOnBoot) {
+                    runCatching { BatteryMonitoringController.start(context) }
+                }
+            }
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                if (settings.notificationEnabled) {
+                    runCatching { BatteryMonitoringController.start(context) }
+                }
+            }
         }
     }
 }
