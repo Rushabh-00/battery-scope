@@ -40,7 +40,11 @@ class BatteryReader(context: Context) {
                 if (detected != null) cachedDesignCapacityMah = detected
             }
         val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
-        val energyWh = if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
+        val energyWh = readEnergyWh() ?: if (remainingMah != null && voltageV != null) {
+            remainingMah / 1000.0 * voltageV
+        } else {
+            null
+        }
         val snapshot = BatterySnapshot(
             levelPercent = levelPercent,
             charging = charging,
@@ -60,6 +64,11 @@ class BatteryReader(context: Context) {
     private fun readChargeCounterMah(): Double? {
         val microAh = batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER) ?: Long.MIN_VALUE
         return microAh.takeIf { it > 0 }?.toDouble()?.div(1000.0)
+    }
+
+    private fun readEnergyWh(): Double? {
+        val nanoWh = batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER) ?: Long.MIN_VALUE
+        return nanoWh.takeIf { it > 0 }?.toDouble()?.div(1_000_000_000.0)
     }
 }
 
