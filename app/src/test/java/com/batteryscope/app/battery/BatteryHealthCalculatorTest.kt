@@ -17,8 +17,8 @@ class BatteryHealthCalculatorTest {
     fun usesMiddlePairForEvenSampleCount() {
         val result = BatteryHealthCalculator.calculate(5000.0, listOf(4400.0, 4500.0, 4600.0, 4700.0))
 
-        assertEquals(92.0, result.healthPercent!!, 0.0)
-        assertEquals(400.0, result.wearMah!!, 0.0)
+        assertEquals(91.0, result.healthPercent!!, 0.0)
+        assertEquals(450.0, result.wearMah!!, 0.0)
     }
 
     @Test
