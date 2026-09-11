@@ -15,7 +15,7 @@ object BatteryHealthCalculator {
         return calculateFromWeightedSamples(design, samples.map { WeightedSample(it, 1.0) })
     }
 
-    fun calculate(
+    fun calculateFromSessions(
         designCapacityMah: Double?,
         fullChargeSessions: List<CapacitySessionTracker.FullChargeSession>,
     ): Result {
