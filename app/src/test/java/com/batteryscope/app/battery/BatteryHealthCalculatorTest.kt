@@ -9,8 +9,8 @@ class BatteryHealthCalculatorTest {
     fun usesMedianInsteadOfSingleLowOutlier() {
         val result = BatteryHealthCalculator.calculate(5000.0, listOf(4500.0, 4480.0, 3200.0, 4520.0, 4510.0))
 
-        assertEquals(90.2, result.healthPercent!!, 0.0)
-        assertEquals(490.0, result.wearMah!!, 0.0)
+        assertEquals(90.0, result.healthPercent!!, 0.0)
+        assertEquals(500.0, result.wearMah!!, 0.0)
     }
 
     @Test
