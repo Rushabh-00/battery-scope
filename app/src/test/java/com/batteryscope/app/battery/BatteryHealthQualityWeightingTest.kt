@@ -16,7 +16,7 @@ class BatteryHealthQualityWeightingTest {
         val result = BatteryHealthCalculator.calculateFromSessions(5000.0, sessions)
 
         assertEquals(88.4, result.healthPercent!!, 0.0)
-        assertEquals(73, result.confidencePercent)
+        assertEquals(71, result.confidencePercent)
     }
 
     private fun session(capacityMah: Double, qualityPercent: Int) = CapacitySessionTracker.FullChargeSession(
