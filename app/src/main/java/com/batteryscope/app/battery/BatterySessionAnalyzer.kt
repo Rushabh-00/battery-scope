@@ -7,9 +7,11 @@ class BatterySessionAnalyzer(context: Context) {
     data class Analysis(
         val learnedCapacityMah: Double?,
         val latestSessionCapacityMah: Double?,
+        val latestSessionQualityPercent: Int?,
         val healthPercent: Double?,
         val healthConfidencePercent: Int,
         val wearMah: Double?,
+        val capacityTrend: CapacityTrendCalculator.Trend?,
         val chargeMah: Double,
         val dischargeMah: Double,
         val chargeTimeMs: Long,
@@ -34,14 +36,17 @@ class BatterySessionAnalyzer(context: Context) {
         )
         val health = BatteryHealthCalculator.calculate(
             designCapacityMah = snapshot.batteryCapacityMah,
-            fullChargeCapacitiesMah = state.fullChargeSessions.map { it.estimatedCapacityMah },
+            fullChargeSessions = state.fullChargeSessions,
         )
+        val latest = state.fullChargeSessions.lastOrNull()
         return Analysis(
             learnedCapacityMah = tracker.learnedCapacityMah(),
-            latestSessionCapacityMah = tracker.latestEstimatedCapacityMah(),
+            latestSessionCapacityMah = latest?.estimatedCapacityMah,
+            latestSessionQualityPercent = latest?.qualityPercent,
             healthPercent = health.healthPercent,
             healthConfidencePercent = health.confidencePercent,
             wearMah = health.wearMah,
+            capacityTrend = CapacityTrendCalculator.calculate(state.fullChargeSessions),
             chargeMah = state.totals.chargeMah,
             dischargeMah = state.totals.dischargeMah,
             chargeTimeMs = state.totals.chargeTimeMs,
