@@ -1,3 +1,4 @@
+# BatteryScope 0.5 release workflow
 name: Android Release
 
 on:
