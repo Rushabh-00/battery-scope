@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -49,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -58,7 +60,10 @@ import com.batteryscope.app.battery.BatterySnapshot
 import com.batteryscope.app.battery.CapacityPreferences
 import com.batteryscope.app.settings.AppSettings
 import com.batteryscope.app.settings.UiPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -119,8 +124,8 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
     val interval = settings.updateIntervalMs
 
     LaunchedEffect(reader, interval) {
-        while (true) {
-            runCatching { reader.read() }
+        while (isActive) {
+            runCatching { withContext(Dispatchers.IO) { reader.read() } }
                 .onSuccess {
                     battery = it
                     lastUpdatedAt = System.currentTimeMillis()
@@ -196,7 +201,7 @@ private fun Hero(battery: BatterySnapshot, settings: AppSettings) = Card(
                 Text("${battery.levelPercent}%", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Energy", style = MaterialTheme.typography.labelLarge)
+                Text("Stored energy (est.)", style = MaterialTheme.typography.labelLarge)
                 Text(battery.energyWh?.let { "${f2(it)} Wh" } ?: "—", style = MaterialTheme.typography.titleLarge)
                 Text(battery.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—")
             }
@@ -251,7 +256,6 @@ private fun CapacityHealthCard(battery: BatterySnapshot, analysis: BatterySessio
         Stat("Battery health", analysis.healthPercent?.let { "${f0(it)}%" } ?: "Awaiting completed session")
         Stat("Wear", analysis.wearMah?.let { "${f0(it)} mAh" } ?: "—")
         Stat("Remaining charge", battery.remainingMah?.let { "${f0(it)} mAh" } ?: "Unavailable")
-        Stat("Estimated capacity", analysis.learnedCapacityMah?.let { "${f0(it)} mAh" } ?: "Awaiting completed session")
         Stat("Charge", "${f0(analysis.chargeMah)} mAh • ${duration(analysis.chargeTimeMs)}")
         Stat("Discharge", "${f0(analysis.dischargeMah)} mAh • ${duration(analysis.dischargeTimeMs)}")
         Spacer(Modifier.height(12.dp))
@@ -309,11 +313,12 @@ private fun SettingsScreen(
 ) {
     BackHandler { onBack() }
     val context = LocalContext.current
+    val capacityPreferences = remember(context) { CapacityPreferences(context) }
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
     var tempUnit by remember { mutableStateOf(settings.temperatureUnit) }
     var invert by remember { mutableStateOf(settings.invertChargingPolarity) }
     var interval by remember { mutableStateOf(settings.updateIntervalMs) }
-    var capacity by remember { mutableStateOf(CapacityPreferences(context).designCapacityMah?.let(::f0) ?: "") }
+    var capacity by remember { mutableStateOf(capacityPreferences.designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
     var showColorDialog by remember { mutableStateOf(false) }
     Scaffold { padding ->
@@ -355,12 +360,12 @@ private fun SettingsScreen(
                         OutlinedTextField(value = capacity, onValueChange = { capacity = it; message = "" }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Battery capacity (mAh)") }, placeholder = { Text("Example: 4500") })
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { val value = capacity.toDoubleOrNull(); if (value != null && value in 100.0..30_000.0) { CapacityPreferences(context).designCapacityMah = value; message = "Saved" } else message = "Enter 100–30,000 mAh" }) { Text("Save capacity") }
-                            OutlinedButton(onClick = { CapacityPreferences(context).designCapacityMah = null; capacity = ""; message = "Cleared" }) { Text("Clear") }
+                            Button(onClick = { val value = capacity.toDoubleOrNull(); if (value != null && value in 100.0..30_000.0) { capacityPreferences.designCapacityMah = value; message = "Saved" } else message = "Enter 100–30,000 mAh" }) { Text("Save capacity") }
+                            OutlinedButton(onClick = { capacityPreferences.designCapacityMah = null; capacity = ""; message = "Cleared" }) { Text("Clear") }
                         }
                         if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
-                        Text("Used for health, wear and charge-time estimates. Learned capacity is never shown until a valid full-charge session completes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Used for health and wear comparison. Learned capacity is shown only after a valid full-charge session completes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 item {
@@ -369,7 +374,13 @@ private fun SettingsScreen(
                         Text("Controls live telemetry refresh rate.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Text(formatInterval(interval), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Slider(value = interval.toFloat(), onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L); settings.updateIntervalMs = interval }, valueRange = 1_250f..10_000f, steps = 34)
+                        Slider(
+                            value = interval.toFloat(),
+                            onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) },
+                            onValueChangeFinished = { settings.updateIntervalMs = interval },
+                            valueRange = 1_250f..10_000f,
+                            steps = 34,
+                        )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("1.25 s"); Text("10 s") }
                         Spacer(Modifier.height(10.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -419,7 +430,7 @@ private fun ChoiceRow(title: String, options: List<String>, selected: String, on
                     .clip(RoundedCornerShape(13.dp))
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp))
                     .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    .clickable { onSelected(option) }
+                    .selectable(selected = active, onClick = { onSelected(option) }, role = Role.RadioButton)
                     .padding(vertical = 9.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -450,7 +461,8 @@ private fun ColorDot(value: Long, selected: Long, onSelected: (Long) -> Unit) {
             .clip(CircleShape)
             .background(color)
             .border(if (value == selected) 3.dp else 0.dp, if (value == selected) Color.White else Color.Transparent, CircleShape)
-            .clickable { onSelected(value) },
+            .selectable(selected = value == selected, onClick = { onSelected(value) }, role = Role.RadioButton)
+            .padding(6.dp),
         contentAlignment = Alignment.Center,
     ) {}
 }
