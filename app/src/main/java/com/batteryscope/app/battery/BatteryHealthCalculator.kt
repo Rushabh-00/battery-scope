@@ -39,10 +39,10 @@ object BatteryHealthCalculator {
         }?.capacityMah ?: sorted.last().capacityMah
         val averageQuality = (samples.sumOf { it.weight } / samples.size).coerceIn(0.25, 1.0)
         val countConfidence = when (samples.size) {
-            1 -> 25
-            2 -> 50
-            3 -> 70
-            4 -> 85
+            1 -> 20
+            2 -> 40
+            3 -> 60
+            4 -> 80
             else -> 100
         }
         val confidence = (countConfidence * (0.6 + 0.4 * averageQuality)).toInt().coerceIn(0, 100)
