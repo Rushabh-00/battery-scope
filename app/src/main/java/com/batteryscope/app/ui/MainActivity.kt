@@ -254,6 +254,7 @@ private fun CapacityHealthCard(battery: BatterySnapshot, analysis: BatterySessio
         Stat("Learned capacity", analysis.learnedCapacityMah?.let { "${f0(it)} mAh" } ?: "Awaiting completed session")
         Stat("Latest full-charge", analysis.latestSessionCapacityMah?.let { "${f0(it)} mAh" } ?: "—")
         Stat("Battery health", analysis.healthPercent?.let { "${f0(it)}%" } ?: "Awaiting completed session")
+        Stat("Health confidence", if (analysis.healthPercent != null) "${analysis.healthConfidencePercent}%" else "—")
         Stat("Wear", analysis.wearMah?.let { "${f0(it)} mAh" } ?: "—")
         Stat("Remaining charge", battery.remainingMah?.let { "${f0(it)} mAh" } ?: "Unavailable")
         Stat("Charge", "${f0(analysis.chargeMah)} mAh • ${duration(analysis.chargeTimeMs)}")
@@ -262,7 +263,7 @@ private fun CapacityHealthCard(battery: BatterySnapshot, analysis: BatterySessio
         HorizontalDivider()
         Spacer(Modifier.height(12.dp))
         Text(
-            "A session is valid only after the battery has been sampled at 15% or lower while discharging, then charged to full. Health averages up to five completed sessions.",
+            "A session is valid only after the battery has been sampled at 15% or lower while discharging, then charged to full. Health uses the median of up to five completed sessions; confidence increases as independent sessions accumulate.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
