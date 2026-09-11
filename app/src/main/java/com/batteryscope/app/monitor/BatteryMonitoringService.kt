@@ -35,7 +35,7 @@ class BatteryMonitoringService : Service() {
     private lateinit var settings: AppSettings
     private var iconBitmap: Bitmap? = null
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.DEFAULT_BOLD
+        typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
         style = Paint.Style.FILL
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
@@ -49,7 +49,7 @@ class BatteryMonitoringService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!settings.backgroundMonitoringEnabled) {
+        if (!settings.notificationEnabled) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -60,7 +60,7 @@ class BatteryMonitoringService : Service() {
     private fun startMonitoring() {
         if (monitorJob?.isActive == true) return
         monitorJob = scope.launch {
-            while (isActive && settings.backgroundMonitoringEnabled) {
+            while (isActive && settings.notificationEnabled) {
                 runCatching { BatteryRuntime.read(this@BatteryMonitoringService) }
                     .onSuccess { snapshot ->
                         getSystemService(NotificationManager::class.java)?.notify(
@@ -131,21 +131,21 @@ class BatteryMonitoringService : Service() {
         bitmap.eraseColor(Color.TRANSPARENT)
 
         val canvas = Canvas(bitmap)
-        val maxWidth = size * 0.96f
+        val maxWidth = size * 0.97f
 
-        iconPaint.textSize = 56f * density
+        iconPaint.textSize = 58f * density
         val measuredValue = iconPaint.measureText(value)
         if (measuredValue > maxWidth && measuredValue > 0f) {
             iconPaint.textSize *= maxWidth / measuredValue
         }
-        canvas.drawText(value, size / 2f, size * 0.64f, iconPaint)
+        canvas.drawText(value, size / 2f, size * 0.66f, iconPaint)
 
-        iconPaint.textSize = 22f * density
+        iconPaint.textSize = 10f * density
         val measuredUnit = iconPaint.measureText(unit)
         if (measuredUnit > maxWidth && measuredUnit > 0f) {
             iconPaint.textSize *= maxWidth / measuredUnit
         }
-        canvas.drawText(unit, size / 2f, size * 0.96f, iconPaint)
+        canvas.drawText(unit, size / 2f, size * 0.97f, iconPaint)
         return Icon.createWithBitmap(bitmap)
     }
 
@@ -236,7 +236,7 @@ class BatteryMonitoringService : Service() {
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Ongoing status for optional background battery monitoring"
+                    description = "Ongoing status for optional battery notifications"
                     setShowBadge(false)
                 },
             )
