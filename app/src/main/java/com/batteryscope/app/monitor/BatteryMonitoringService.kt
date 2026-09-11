@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlin.math.abs
 
 class BatteryMonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -59,24 +60,16 @@ class BatteryMonitoringService : Service() {
     }
 
     private fun buildNotification(snapshot: BatterySnapshot?): Notification {
-        val notificationIcon = settings.notificationIcon
-        val entries = settings.notificationEntries
-        val primary = snapshot?.let { formatMetric(it, notificationIcon) }
-        val title = if (primary != null) "BatteryScope • $primary" else "BatteryScope • monitoring"
+        val iconMetric = settings.notificationIcon
+        val entryMetrics = settings.notificationEntries.filter { it != iconMetric }.sortedBy { it.ordinal }
+        val headline = snapshot?.let { formatCompactMetric(it, iconMetric) } ?: "Monitoring"
         val detailLines = snapshot?.let { value ->
             buildList {
-                entries.sortedBy { it.ordinal }.forEach { metric ->
-                    add(formatMetric(value, metric))
-                }
-                if (settings.notificationChargeTimeEstimate) {
-                    formatChargeTimeEstimate(value)?.let(::add)
-                }
-            }.filter { it.isNotBlank() }
+                add(formatMetric(value, iconMetric))
+                entryMetrics.forEach { add(formatMetric(value, it)) }
+                if (settings.notificationChargeTimeEstimate) formatChargeTimeEstimate(value)?.let(::add)
+            }
         }.orEmpty()
-        val content = when {
-            detailLines.isNotEmpty() -> detailLines.first()
-            else -> "Background battery monitoring is starting"
-        }
 
         val openIntent = PendingIntent.getActivity(
             this,
@@ -87,8 +80,8 @@ class BatteryMonitoringService : Service() {
 
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_battery)
-            .setContentTitle(title)
-            .setContentText(content)
+            .setContentTitle(headline)
+            .setContentText(entryMetrics.joinToString("   ") { formatCompactMetric(snapshot, it) }.ifBlank { "BatteryScope • monitoring" })
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
@@ -100,10 +93,23 @@ class BatteryMonitoringService : Service() {
         return builder.build()
     }
 
+    private fun formatCompactMetric(snapshot: BatterySnapshot?, metric: AppSettings.NotificationMetric): String {
+        if (snapshot == null) return "— ${metric.value}"
+        return when (metric) {
+            AppSettings.NotificationMetric.POWER -> "${snapshot.powerW?.let { f1(it) } ?: "—"} W"
+            AppSettings.NotificationMetric.CURRENT -> "${snapshot.currentA?.let { currentText(it) } ?: "—"}"
+            AppSettings.NotificationMetric.CHARGE -> "${snapshot.remainingMah?.let { f2(it / 1000.0) } ?: "—"} Ah"
+            AppSettings.NotificationMetric.TEMPERATURE -> "${snapshot.temperatureC?.let { f0(it) } ?: "—"} °C"
+            AppSettings.NotificationMetric.VOLTAGE -> "${snapshot.voltageV?.let { f1(it) } ?: "—"} V"
+            AppSettings.NotificationMetric.ENERGY -> "${snapshot.energyWh?.let { f1(it) } ?: "—"} Wh"
+            AppSettings.NotificationMetric.PERCENT -> "${snapshot.levelPercent}%"
+        }
+    }
+
     private fun formatMetric(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "Power ${snapshot.powerW?.let { "${f1(it)} W" } ?: "—"}"
         AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let { currentText(it) } ?: "—"}"
-        AppSettings.NotificationMetric.CHARGE -> "Energy ${snapshot.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—"}"
+        AppSettings.NotificationMetric.CHARGE -> "Charge ${snapshot.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—"}"
         AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let { "${f1(it)} °C" } ?: "—"}"
         AppSettings.NotificationMetric.VOLTAGE -> "Voltage ${snapshot.voltageV?.let { "${f1(it)} V" } ?: "—"}"
         AppSettings.NotificationMetric.ENERGY -> "Energy ${snapshot.energyWh?.let { "${f1(it)} Wh" } ?: "—"}"
@@ -114,7 +120,7 @@ class BatteryMonitoringService : Service() {
         if (!snapshot.charging || snapshot.full) return null
         val remainingMah = snapshot.remainingMah ?: return null
         val capacityMah = snapshot.batteryCapacityMah ?: return null
-        val currentA = kotlin.math.abs(snapshot.currentA ?: return null)
+        val currentA = abs(snapshot.currentA ?: return null)
         if (currentA < 0.01) return null
         val missingMah = (capacityMah - remainingMah).coerceAtLeast(0.0)
         if (missingMah <= 0.0) return null
@@ -153,6 +159,7 @@ class BatteryMonitoringService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun currentText(value: Double) = String.format(Locale.US, "%.2f A", value)
+    private fun f0(value: Double) = String.format(Locale.US, "%.0f", value)
     private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
     private fun f2(value: Double) = String.format(Locale.US, "%.2f", value)
 
