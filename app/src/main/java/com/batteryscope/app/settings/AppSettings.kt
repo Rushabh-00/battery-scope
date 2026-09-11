@@ -27,6 +27,19 @@ class AppSettings(context: Context) {
             .coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS)
         set(value) = preferences.edit().putLong(KEY_UPDATE_INTERVAL_MS, value.coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS)).apply()
 
+    var backgroundMonitoringEnabled: Boolean
+        get() = preferences.getBoolean(KEY_BACKGROUND_MONITORING, false)
+        set(value) = preferences.edit().putBoolean(KEY_BACKGROUND_MONITORING, value).apply()
+
+    var startOnBoot: Boolean
+        get() = preferences.getBoolean(KEY_START_ON_BOOT, false)
+        set(value) = preferences.edit().putBoolean(KEY_START_ON_BOOT, value).apply()
+
+    var backgroundUpdateIntervalMs: Long
+        get() = preferences.getLong(KEY_BACKGROUND_INTERVAL_MS, DEFAULT_BACKGROUND_INTERVAL_MS)
+            .coerceIn(MIN_BACKGROUND_INTERVAL_MS, MAX_BACKGROUND_INTERVAL_MS)
+        set(value) = preferences.edit().putLong(KEY_BACKGROUND_INTERVAL_MS, value.coerceIn(MIN_BACKGROUND_INTERVAL_MS, MAX_BACKGROUND_INTERVAL_MS)).apply()
+
     enum class CurrentUnit(val value: String) {
         AMPERE("A"),
         MILLIAMPERE("mA");
@@ -53,8 +66,14 @@ class AppSettings(context: Context) {
         const val KEY_THEME = "theme"
         const val KEY_INVERT_CHARGING_POLARITY = "invert_charging_polarity"
         const val KEY_UPDATE_INTERVAL_MS = "update_interval_ms"
+        const val KEY_BACKGROUND_MONITORING = "background_monitoring"
+        const val KEY_START_ON_BOOT = "start_on_boot"
+        const val KEY_BACKGROUND_INTERVAL_MS = "background_interval_ms"
         const val MIN_UPDATE_INTERVAL_MS = 1_250L
         const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
         const val MAX_UPDATE_INTERVAL_MS = 10_000L
+        const val MIN_BACKGROUND_INTERVAL_MS = 5_000L
+        const val DEFAULT_BACKGROUND_INTERVAL_MS = 10_000L
+        const val MAX_BACKGROUND_INTERVAL_MS = 60_000L
     }
 }
