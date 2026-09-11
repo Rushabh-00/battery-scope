@@ -208,7 +208,7 @@ private fun MonitoringBanner(settings: AppSettings, battery: BatterySnapshot?) =
         Column(Modifier.weight(1f)) {
             Text(if (settings.backgroundMonitoringEnabled) "Background monitoring is active" else "Background monitoring is off", fontWeight = FontWeight.SemiBold)
             Text(
-                if (settings.backgroundMonitoringEnabled) "${battery?.levelPercent ?: "—"}% • ${formatInterval(settings.backgroundUpdateIntervalMs)} sampling • persistent status notification"
+                if (settings.backgroundMonitoringEnabled) "${battery?.levelPercent ?: "—"}% • ${formatInterval(settings.updateIntervalMs)} sampling • persistent status notification"
                 else "Enable it from Settings for optional monitoring after you leave the app.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -276,7 +276,7 @@ private fun LiveMeta(lastUpdatedAt: Long, interval: Long, readError: Boolean, ba
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(if (backgroundMonitoring) "Background • ${formatInterval(interval)} UI refresh" else "Every ${formatInterval(interval)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (backgroundMonitoring) "Background • ${formatInterval(interval)} interval" else "Every ${formatInterval(interval)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -363,7 +363,6 @@ private fun SettingsScreen(
     var interval by remember { mutableStateOf(settings.updateIntervalMs) }
     var backgroundEnabled by remember { mutableStateOf(settings.backgroundMonitoringEnabled) }
     var startOnBoot by remember { mutableStateOf(settings.startOnBoot) }
-    var backgroundInterval by remember { mutableStateOf(settings.backgroundUpdateIntervalMs) }
     var capacity by remember { mutableStateOf(capacityPreferences.designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
     var showColorDialog by remember { mutableStateOf(false) }
@@ -404,19 +403,13 @@ private fun SettingsScreen(
                             startOnBoot = it
                             settings.startOnBoot = it
                         }
-                        Spacer(Modifier.height(14.dp))
-                        Text("Background sampling", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                        Text("${formatInterval(backgroundInterval)} • slower sampling uses less battery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Slider(
-                            value = backgroundInterval.toFloat(),
-                            onValueChange = { backgroundInterval = snapBackgroundInterval(it) },
-                            onValueChangeFinished = { settings.backgroundUpdateIntervalMs = backgroundInterval },
-                            valueRange = 5_000f..60_000f,
-                            steps = 10,
-                            enabled = backgroundEnabled,
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Background monitoring uses the same update interval as Foreground telemetry: ${formatInterval(interval)}.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("5 s"); Text("60 s") }
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(10.dp))
                         OutlinedButton(onClick = {
                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
                             context.startActivity(intent)
@@ -435,6 +428,7 @@ private fun SettingsScreen(
                         )
                     }
                 }
+                item { NotificationSettingsSection(settings) }
                 item {
                     Section("Appearance") {
                         SegmentedChoice("Theme Mode", UiPreferences.Theme.entries.map { it.value }, theme.value) { onTheme(UiPreferences.Theme.fromValue(it)) }
@@ -476,7 +470,7 @@ private fun SettingsScreen(
                 item {
                     Section("Telemetry") {
                         Text("Foreground update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                        Text("Controls live telemetry refresh when background monitoring is off.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Controls live telemetry refresh and background monitoring.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(8.dp))
                         Text(formatInterval(interval), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Slider(value = interval.toFloat(), onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) }, onValueChangeFinished = { settings.updateIntervalMs = interval }, valueRange = 1_250f..10_000f, steps = 34)
@@ -573,16 +567,6 @@ private fun isIgnoringBatteryOptimizations(context: android.content.Context): Bo
     val manager = context.getSystemService(PowerManager::class.java)
     Build.VERSION.SDK_INT < 23 || manager?.isIgnoringBatteryOptimizations(context.packageName) == true
 }.getOrDefault(false)
-
-private fun snapBackgroundInterval(value: Float): Long = when {
-    value <= 7_500f -> 5_000L
-    value <= 12_500f -> 10_000L
-    value <= 17_500f -> 15_000L
-    value <= 25_000f -> 20_000L
-    value <= 37_500f -> 30_000L
-    value <= 45_000f -> 45_000L
-    else -> 60_000L
-}
 
 private fun currentText(value: Double, unit: AppSettings.CurrentUnit) = if (unit == AppSettings.CurrentUnit.AMPERE) "${f1(value)} A" else "${f0(value * 1000)} mA"
 private fun tempText(value: Double, unit: AppSettings.TemperatureUnit) = if (unit == AppSettings.TemperatureUnit.CELSIUS) "${f1(value)} °C" else "${f1(value * 9 / 5 + 32)} °F"
