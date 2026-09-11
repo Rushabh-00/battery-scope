@@ -2,12 +2,13 @@ package com.batteryscope.app.monitor
 
 import android.content.Context
 import android.content.Intent
-import androidx.core.content.ContextCompat
+import android.os.Build
 
 object BatteryMonitoringController {
     fun start(context: Context) {
         val appContext = context.applicationContext
-        ContextCompat.startForegroundService(appContext, Intent(appContext, BatteryMonitoringService::class.java))
+        val intent = Intent(appContext, BatteryMonitoringService::class.java)
+        if (Build.VERSION.SDK_INT >= 26) appContext.startForegroundService(intent) else appContext.startService(intent)
     }
 
     fun stop(context: Context) {
