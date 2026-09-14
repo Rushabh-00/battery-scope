@@ -25,7 +25,7 @@ class BatteryHealthQualityWeightingTest {
         durationMs = 3_600_000L,
         startedAtMs = 1L,
         completedAtMs = 2L,
-        startLevelPercent = 10,
+        startLevelPercent = 15,
         qualityPercent = qualityPercent,
     )
 }
