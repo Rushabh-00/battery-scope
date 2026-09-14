@@ -1,17 +1,33 @@
 package com.batteryscope.app.ui
 
 import android.os.Build
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.batteryscope.app.settings.UiPreferences
 
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun BatteryScopeTheme(
     mode: UiPreferences.Theme,
@@ -38,8 +54,65 @@ fun BatteryScopeTheme(
     } else {
         customColorScheme(argbColorToComposeColor(accentColorArgb), colorStyle, dark, mode == UiPreferences.Theme.OLED)
     }
-    MaterialTheme(colorScheme = colors, content = content)
+
+    val themeKey = remember(mode, colorMode, accentColorArgb, colorStyle) {
+        ThemeKey(mode, colorMode, accentColorArgb, colorStyle)
+    }
+    val contentScale by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(durationMillis = 260),
+        label = "themeContentScale",
+    )
+    val typography = batteryScopeTypography()
+
+    MaterialTheme(
+        colorScheme = colors,
+        typography = typography,
+    ) {
+        AnimatedContent(
+            targetState = themeKey,
+            modifier = Modifier,
+            transitionSpec = {
+                (fadeIn(tween(220)) + scaleIn(initialScale = 0.985f, animationSpec = tween(260))) togetherWith
+                    (fadeOut(tween(120)) + scaleOut(targetScale = 1.015f, animationSpec = tween(180)))
+            },
+            contentKey = { it },
+            label = "themeTransition",
+        ) {
+            androidx.compose.foundation.layout.Box(Modifier) {
+                androidx.compose.ui.graphics.graphicsLayer {
+                    scaleX = contentScale
+                    scaleY = contentScale
+                }
+                content()
+            }
+        }
+    }
 }
+
+private data class ThemeKey(
+    val mode: UiPreferences.Theme,
+    val colorMode: UiPreferences.ColorMode,
+    val accentColorArgb: Long,
+    val colorStyle: UiPreferences.ColorStyle,
+)
+
+private fun batteryScopeTypography() = Typography(
+    displayLarge = androidx.compose.material3.Typography().displayLarge.copy(
+        fontWeight = FontWeight.Bold,
+        letterSpacing = (-0.5).sp,
+    ),
+    displayMedium = androidx.compose.material3.Typography().displayMedium.copy(
+        fontWeight = FontWeight.Bold,
+        letterSpacing = (-0.4).sp,
+    ),
+    headlineLarge = androidx.compose.material3.Typography().headlineLarge.copy(fontWeight = FontWeight.Bold),
+    headlineMedium = androidx.compose.material3.Typography().headlineMedium.copy(fontWeight = FontWeight.Bold),
+    headlineSmall = androidx.compose.material3.Typography().headlineSmall.copy(fontWeight = FontWeight.Bold),
+    titleLarge = androidx.compose.material3.Typography().titleLarge.copy(fontWeight = FontWeight.SemiBold),
+    titleMedium = androidx.compose.material3.Typography().titleMedium.copy(fontWeight = FontWeight.SemiBold),
+    labelLarge = androidx.compose.material3.Typography().labelLarge.copy(fontWeight = FontWeight.SemiBold),
+)
 
 private fun argbColorToComposeColor(value: Long): Color {
     val argb = value.toInt()
