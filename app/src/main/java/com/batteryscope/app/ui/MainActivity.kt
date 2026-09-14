@@ -416,6 +416,7 @@ private fun SettingsScreen(
                         Text("Make BatteryScope look better and run exactly as much as you want.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+                item { NotificationSettingsSection(settings) }
                 item {
                     Section("Start on boot") {
                         ToggleRow(
@@ -435,7 +436,56 @@ private fun SettingsScreen(
                         )
                     }
                 }
-                item { NotificationSettingsSection(settings) }
+                item {
+                    Section("Telemetry") {
+                        Text("Foreground update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                        Text("Controls live telemetry refresh and notification monitoring.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text(formatInterval(interval), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Slider(value = interval.toFloat(), onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) }, onValueChangeFinished = { settings.updateIntervalMs = interval }, valueRange = 1_250f..10_000f, steps = 34)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("1.25 s"); Text("10 s") }
+                        Spacer(Modifier.height(10.dp))
+                        ToggleRow("Invert charging polarity", "Changes current sign live. Power follows the sign.", invert) { invert = it; settings.invertChargingPolarity = it }
+                    }
+                }
+                item {
+                    Section("Battery capacity") {
+                        Text("Design capacity", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(value = capacity, onValueChange = { capacity = it; message = "" }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Battery capacity (mAh)") }, placeholder = { Text("Example: 4500") })
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { val value = capacity.toDoubleOrNull(); if (value != null && value in 100.0..30_000.0) { capacityPreferences.designCapacityMah = value; message = "Saved" } else message = "Enter 100–30,000 mAh" }) { Text("Save capacity") }
+                            OutlinedButton(onClick = { capacityPreferences.designCapacityMah = null; capacity = ""; message = "Cleared" }) { Text("Clear") }
+                        }
+                        if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Used for health and wear comparison. Learned capacity appears only after a valid full-charge session.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                item {
+                    Section("Units") {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f)) { ChoiceRow("Current", AppSettings.CurrentUnit.entries.map { it.value }, currentUnit.value) { currentUnit = AppSettings.CurrentUnit.fromValue(it); settings.currentUnit = currentUnit } }
+                            Column(Modifier.weight(1f)) { ChoiceRow("Temperature", AppSettings.TemperatureUnit.entries.map { it.value }, tempUnit.value) { tempUnit = AppSettings.TemperatureUnit.fromValue(it); settings.temperatureUnit = tempUnit } }
+                        }
+                    }
+                }
+                item {
+                    Section("Appearance") {
+                        SegmentedChoice("Theme Mode", UiPreferences.Theme.entries.map { it.value }, theme.value) { onTheme(UiPreferences.Theme.fromValue(it)) }
+                        Spacer(Modifier.height(16.dp))
+                        SegmentedChoice("Theme Colour", UiPreferences.ColorMode.entries.map { it.value }, colorMode.value) { onColorMode(UiPreferences.ColorMode.fromValue(it)) }
+                        if (colorMode == UiPreferences.ColorMode.CUSTOM) {
+                            Spacer(Modifier.height(14.dp))
+                            ThemeColorPalette(accent, onAccent)
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedButton(onClick = { showColorDialog = true }, Modifier.fillMaxWidth()) { Text("Custom Colour") }
+                            Spacer(Modifier.height(12.dp))
+                            SegmentedChoice("Colour Style", UiPreferences.ColorStyle.entries.map { it.value }, colorStyle.value) { selected -> onColorStyle(UiPreferences.ColorStyle.entries.firstOrNull { it.value == selected } ?: UiPreferences.ColorStyle.TONAL) }
+                        }
+                    }
+                }
                 item {
                     Section("App update") {
                         Text("Current version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
@@ -489,57 +539,7 @@ private fun SettingsScreen(
                         }
                     }
                 }
-                item {
-                    Section("Appearance") {
-                        SegmentedChoice("Theme Mode", UiPreferences.Theme.entries.map { it.value }, theme.value) { onTheme(UiPreferences.Theme.fromValue(it)) }
-                        Spacer(Modifier.height(16.dp))
-                        SegmentedChoice("Theme Colour", UiPreferences.ColorMode.entries.map { it.value }, colorMode.value) { onColorMode(UiPreferences.ColorMode.fromValue(it)) }
-                        if (colorMode == UiPreferences.ColorMode.CUSTOM) {
-                            Spacer(Modifier.height(14.dp))
-                            ThemeColorPalette(accent, onAccent)
-                            Spacer(Modifier.height(10.dp))
-                            OutlinedButton(onClick = { showColorDialog = true }, Modifier.fillMaxWidth()) { Text("Custom Colour") }
-                            Spacer(Modifier.height(12.dp))
-                            SegmentedChoice("Colour Style", UiPreferences.ColorStyle.entries.map { it.value }, colorStyle.value) { selected -> onColorStyle(UiPreferences.ColorStyle.entries.firstOrNull { it.value == selected } ?: UiPreferences.ColorStyle.TONAL) }
-                        }
-                    }
-                }
-                item {
-                    Section("Units") {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Column(Modifier.weight(1f)) { ChoiceRow("Current", AppSettings.CurrentUnit.entries.map { it.value }, currentUnit.value) { currentUnit = AppSettings.CurrentUnit.fromValue(it); settings.currentUnit = currentUnit } }
-                            Column(Modifier.weight(1f)) { ChoiceRow("Temperature", AppSettings.TemperatureUnit.entries.map { it.value }, tempUnit.value) { tempUnit = AppSettings.TemperatureUnit.fromValue(it); settings.temperatureUnit = tempUnit } }
-                        }
-                    }
-                }
-                item {
-                    Section("Battery capacity") {
-                        Text("Design capacity", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(value = capacity, onValueChange = { capacity = it; message = "" }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Battery capacity (mAh)") }, placeholder = { Text("Example: 4500") })
-                        Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { val value = capacity.toDoubleOrNull(); if (value != null && value in 100.0..30_000.0) { capacityPreferences.designCapacityMah = value; message = "Saved" } else message = "Enter 100–30,000 mAh" }) { Text("Save capacity") }
-                            OutlinedButton(onClick = { capacityPreferences.designCapacityMah = null; capacity = ""; message = "Cleared" }) { Text("Clear") }
-                        }
-                        if (message.isNotEmpty()) Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Used for health and wear comparison. Learned capacity appears only after a valid full-charge session.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                item {
-                    Section("Telemetry") {
-                        Text("Foreground update interval", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                        Text("Controls live telemetry refresh and notification monitoring.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(8.dp))
-                        Text(formatInterval(interval), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Slider(value = interval.toFloat(), onValueChange = { value -> interval = ((value / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) }, onValueChangeFinished = { settings.updateIntervalMs = interval }, valueRange = 1_250f..10_000f, steps = 34)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("1.25 s"); Text("10 s") }
-                        Spacer(Modifier.height(10.dp))
-                        ToggleRow("Invert charging polarity", "Changes current sign live. Power follows the sign.", invert) { invert = it; settings.invertChargingPolarity = it }
-                    }
-                }
-            }
+}
         }
     }
     if (showColorDialog) {
