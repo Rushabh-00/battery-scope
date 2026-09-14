@@ -33,6 +33,7 @@ class BatteryMonitoringService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var monitorJob: Job? = null
     private lateinit var settings: AppSettings
+    private lateinit var openIntent: PendingIntent
     private var iconBitmap: Bitmap? = null
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
@@ -44,6 +45,12 @@ class BatteryMonitoringService : Service() {
     override fun onCreate() {
         super.onCreate()
         settings = AppSettings(this)
+        openIntent = PendingIntent.getActivity(
+            this,
+            10,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         createNotificationChannel()
         startForegroundCompat(buildNotification(null))
     }
@@ -62,23 +69,27 @@ class BatteryMonitoringService : Service() {
         monitorJob = scope.launch {
             while (isActive && settings.notificationEnabled) {
                 runCatching { BatteryRuntime.read(this@BatteryMonitoringService) }
-                    .onSuccess { snapshot ->
-                        getSystemService(NotificationManager::class.java)?.notify(
-                            NOTIFICATION_ID,
-                            buildNotification(snapshot),
-                        )
-                    }
+                    .onSuccess { snapshot -> updateNotification(snapshot) }
                 delay(settings.updateIntervalMs)
             }
             stopSelf()
         }
     }
 
+    private fun updateNotification(snapshot: BatterySnapshot) {
+        getSystemService(NotificationManager::class.java)?.notify(
+            NOTIFICATION_ID,
+            buildNotification(snapshot),
+        )
+    }
+
     private fun buildNotification(snapshot: BatterySnapshot?): Notification {
         val iconMetric = settings.notificationIcon
         val entryMetrics = settings.notificationEntries
+            .asSequence()
             .filter { it != iconMetric }
             .sortedBy { it.ordinal }
+            .toList()
         val detailLines = snapshot?.let { value ->
             buildList {
                 entryMetrics.forEach { add(formatMetric(value, it)) }
@@ -90,13 +101,6 @@ class BatteryMonitoringService : Service() {
             detailLines.size == 1 -> detailLines.first()
             else -> detailLines.joinToString(" • ")
         }
-
-        val openIntent = PendingIntent.getActivity(
-            this,
-            10,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
 
         val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(snapshot?.let { renderMetricIcon(it, iconMetric) } ?: renderPlaceholderIcon(iconMetric))
