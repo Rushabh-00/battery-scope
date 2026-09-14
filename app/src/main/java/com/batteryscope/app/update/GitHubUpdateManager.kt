@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -53,7 +54,7 @@ object GitHubUpdateManager {
         val file = File(context.cacheDir, APK_FILE_NAME)
         download(release.downloadUrl, file)
         withContext(Dispatchers.Main) {
-            launchInstaller(context, file)
+            launchInstallerWhenPermitted(context, file)
         }
     }
 
@@ -69,22 +70,43 @@ object GitHubUpdateManager {
             if (connection.responseCode !in 200..299) {
                 error("GitHub download failed: HTTP ${connection.responseCode}")
             }
+            val temporary = File(destination.parentFile, "$APK_FILE_NAME.part")
+            temporary.delete()
             connection.inputStream.use { input ->
-                destination.outputStream().use { output -> input.copyTo(output) }
+                temporary.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (!temporary.renameTo(destination)) {
+                temporary.delete()
+                error("Could not prepare downloaded APK")
             }
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun launchInstaller(context: Context, apk: File) {
+    private suspend fun launchInstallerWhenPermitted(context: Context, apk: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             val settingsIntent = Intent(
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                 Uri.parse("package:${context.packageName}"),
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(settingsIntent)
-            return
+
+            // The user can grant the permission in Settings without returning through
+            // the app's update button. Keep the downloaded APK and continue automatically
+            // as soon as the permission becomes available.
+            repeat(INSTALL_PERMISSION_WAIT_ATTEMPTS) {
+                delay(INSTALL_PERMISSION_POLL_MS)
+                if (context.packageManager.canRequestPackageInstalls()) return@repeat
+            }
+
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                error("Install permission was not granted")
+            }
+        }
+
+        if (!apk.isFile || apk.length() <= 0L) {
+            error("Downloaded APK is no longer available")
         }
 
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
@@ -93,6 +115,7 @@ object GitHubUpdateManager {
             type = "application/vnd.android.package-archive"
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         context.startActivity(intent)
     }
@@ -112,4 +135,6 @@ object GitHubUpdateManager {
     private const val RELEASES_API = "https://api.github.com/repos/Rushabh-00/battery-scope/releases/latest"
     private const val APK_ASSET_NAME = "BatteryScope-release.apk"
     private const val APK_FILE_NAME = "BatteryScope-update.apk"
+    private const val INSTALL_PERMISSION_POLL_MS = 500L
+    private const val INSTALL_PERMISSION_WAIT_ATTEMPTS = 600
 }
