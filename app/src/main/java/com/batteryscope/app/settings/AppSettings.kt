@@ -72,6 +72,10 @@ class AppSettings(context: Context) {
         get() = preferences.getBoolean(KEY_NOTIFICATION_CHARGE_TIME, true)
         set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_CHARGE_TIME, value).apply()
 
+    var automaticUpdateCheck: Boolean
+        get() = preferences.getBoolean(KEY_AUTOMATIC_UPDATE_CHECK, false)
+        set(value) = preferences.edit().putBoolean(KEY_AUTOMATIC_UPDATE_CHECK, value).apply()
+
     enum class CurrentUnit(val value: String) {
         AMPERE("A"),
         MILLIAMPERE("mA");
@@ -120,6 +124,7 @@ class AppSettings(context: Context) {
         const val KEY_NOTIFICATION_ICON = "notification_icon"
         const val KEY_NOTIFICATION_ENTRIES = "notification_entries"
         const val KEY_NOTIFICATION_CHARGE_TIME = "notification_charge_time"
+        const val KEY_AUTOMATIC_UPDATE_CHECK = "automatic_update_check"
         const val MIN_UPDATE_INTERVAL_MS = 1_250L
         const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
         const val MAX_UPDATE_INTERVAL_MS = 10_000L
