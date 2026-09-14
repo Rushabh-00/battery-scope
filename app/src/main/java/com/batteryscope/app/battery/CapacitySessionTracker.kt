@@ -35,16 +35,8 @@ class CapacitySessionTracker(context: Context) {
 
     fun currentTotals(): FlowTotals = FlowTotals(chargeMah, dischargeMah, chargeTimeMs, dischargeTimeMs)
 
-    fun update(
-        elapsedNowMs: Long,
-        wallNowMs: Long,
-        levelPercent: Int,
-        charging: Boolean,
-        remainingMah: Double?,
-        currentA: Double?,
-        full: Boolean,
-        designCapacityMah: Double?,
-    ): State {
+    fun update(elapsedNowMs: Long, wallNowMs: Long, levelPercent: Int, charging: Boolean, remainingMah: Double?, currentA: Double?, full: Boolean, designCapacityMah: Double?): State {
+        sanitizeSessions(designCapacityMah)
         if (lastTimeMs == 0L) {
             if (charging != lastCharging) {
                 if (charging) resetDischargeTotals() else resetChargeTotals()
@@ -144,6 +136,17 @@ class CapacitySessionTracker(context: Context) {
         }
     }
 
+    private fun sanitizeSessions(designCapacityMah: Double?) {
+        val design = designCapacityMah?.takeIf { it > 0.0 } ?: return
+        val before = sessions.size
+        sessions.removeAll { it.estimatedCapacityMah !in design * MIN_VALID_SESSION_RATIO..design * MAX_ACCEPTED_OVER_DESIGN }
+        if (sessions.size != before) {
+            sessionSnapshot = sessions.toList()
+            cachedLearnedCapacityMah = calculateLearnedCapacity(sessionSnapshot)
+            persistSessions()
+        }
+    }
+
     private fun armForFullCharge(levelPercent: Int) {
         if (!armedForFullCharge) {
             armedForFullCharge = true
@@ -238,6 +241,7 @@ class CapacitySessionTracker(context: Context) {
         private const val MAX_HEALTH_SESSIONS = 5
         private const val MIN_CAPACITY_MAH = 100.0
         private const val MAX_CAPACITY_MAH = 30_000.0
+        private const val MIN_VALID_SESSION_RATIO = 0.35
         private const val MAX_ACCEPTED_OVER_DESIGN = 1.10
         private const val MIN_SOURCE_MAH = 50.0
         private const val MAX_SOURCE_DISAGREEMENT_RATIO = 0.35
