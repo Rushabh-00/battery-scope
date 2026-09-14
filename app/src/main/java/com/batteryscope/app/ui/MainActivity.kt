@@ -7,7 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.BackHandler
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +59,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.batteryscope.app.BuildConfig
 import com.batteryscope.app.battery.BatteryRuntime
 import com.batteryscope.app.battery.BatterySessionAnalyzer
 import com.batteryscope.app.battery.BatterySnapshot
@@ -65,9 +67,11 @@ import com.batteryscope.app.battery.CapacityPreferences
 import com.batteryscope.app.monitor.BatteryMonitoringController
 import com.batteryscope.app.settings.AppSettings
 import com.batteryscope.app.settings.UiPreferences
+import com.batteryscope.app.update.GitHubUpdateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
@@ -112,7 +116,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == NOTIFICATION_PERMISSION_REQUEST &&
             grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED &&
@@ -390,6 +394,7 @@ private fun SettingsScreen(
     BackHandler { onBack() }
     val context = LocalContext.current
     val capacityPreferences = remember(context) { CapacityPreferences(context) }
+    val updateScope = rememberCoroutineScope()
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
     var tempUnit by remember { mutableStateOf(settings.temperatureUnit) }
     var invert by remember { mutableStateOf(settings.invertChargingPolarity) }
@@ -398,6 +403,9 @@ private fun SettingsScreen(
     var capacity by remember { mutableStateOf(capacityPreferences.designCapacityMah?.let(::f0) ?: "") }
     var message by remember { mutableStateOf("") }
     var showColorDialog by remember { mutableStateOf(false) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<GithubUpdateManager.Release?>(null) }
+    var updateMessage by remember { mutableStateOf("") }
 
     Scaffold { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = MaterialTheme.colorScheme.background) {
@@ -428,6 +436,59 @@ private fun SettingsScreen(
                     }
                 }
                 item { NotificationSettingsSection(settings) }
+                item {
+                    Section("App update") {
+                        Text("Current version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Checks the latest BatteryScope release on GitHub. No manual APK download is needed.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    checkingUpdate = true
+                                    availableUpdate = null
+                                    updateMessage = "Checking GitHub…"
+                                    updateScope.launch {
+                                        val result = runCatching {
+                                            GitHubUpdateManager.checkLatest(BuildConfig.VERSION_NAME)
+                                        }
+                                        result.onSuccess { release ->
+                                            availableUpdate = release
+                                            updateMessage = release?.let { "Version ${it.versionName} is available." } ?: "You're up to date."
+                                        }.onFailure {
+                                            updateMessage = "Update check failed. Check your connection and try again."
+                                        }
+                                        checkingUpdate = false
+                                    }
+                                },
+                                enabled = !checkingUpdate,
+                            ) { Text(if (checkingUpdate) "Checking…" else "Check for updates") }
+                            availableUpdate?.let { release ->
+                                OutlinedButton(
+                                    onClick = {
+                                        updateMessage = "Downloading ${release.versionName} from GitHub…"
+                                        updateScope.launch {
+                                            runCatching {
+                                                GitHubUpdateManager.downloadAndInstall(context, release)
+                                            }.onSuccess {
+                                                updateMessage = "Installer opened. Confirm the update to finish."
+                                            }.onFailure {
+                                                updateMessage = "Update download failed. Check your connection and try again."
+                                            }
+                                        }
+                                    },
+                                ) { Text("Download & install") }
+                            }
+                        }
+                        if (updateMessage.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(updateMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
                 item {
                     Section("Appearance") {
                         SegmentedChoice("Theme Mode", UiPreferences.Theme.entries.map { it.value }, theme.value) { onTheme(UiPreferences.Theme.fromValue(it)) }
