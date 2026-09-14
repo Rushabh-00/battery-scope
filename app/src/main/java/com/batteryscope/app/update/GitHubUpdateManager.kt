@@ -15,9 +15,9 @@ import java.net.URL
 
 object GitHubUpdateManager {
     data class Release(
-        val versionName: String,
-        val downloadUrl: String,
-    )
+        override val versionName: String,
+        override val downloadUrl: String,
+    ) : com.batteryscope.app.ui.GithubUpdateManager.Release
 
     suspend fun checkLatest(currentVersion: String): Release? = withContext(Dispatchers.IO) {
         val connection = (URL(RELEASES_API).openConnection() as HttpURLConnection).apply {
@@ -49,7 +49,7 @@ object GitHubUpdateManager {
         }
     }
 
-    suspend fun downloadAndInstall(context: Context, release: Release) = withContext(Dispatchers.IO) {
+    suspend fun downloadAndInstall(context: Context, release: com.batteryscope.app.ui.GithubUpdateManager.Release) = withContext(Dispatchers.IO) {
         val file = File(context.cacheDir, APK_FILE_NAME)
         download(release.downloadUrl, file)
         withContext(Dispatchers.Main) {
