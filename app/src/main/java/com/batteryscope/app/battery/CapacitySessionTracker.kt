@@ -7,7 +7,16 @@ import kotlin.math.max
 
 /** Persists charge/discharge flow and only creates a capacity measurement from a valid low-to-full charge session. */
 class CapacitySessionTracker(context: Context) {
-    data class FullChargeSession(val estimatedCapacityMah: Double, val chargedMah: Double, val durationMs: Long, val startedAtMs: Long, val completedAtMs: Long, val startLevelPercent: Int, val qualityPercent: Int = 70)
+    data class FullChargeSession(
+        val estimatedCapacityMah: Double,
+        val chargedMah: Double,
+        val durationMs: Long,
+        val startedAtMs: Long,
+        val completedAtMs: Long,
+        val startLevelPercent: Int,
+        val qualityPercent: Int = 70,
+        val benchmark: Boolean = false,
+    )
     data class FlowTotals(val chargeMah: Double, val dischargeMah: Double, val chargeTimeMs: Long, val dischargeTimeMs: Long)
     data class State(val fullChargeSessions: List<FullChargeSession>, val totals: FlowTotals)
 
@@ -110,7 +119,19 @@ class CapacitySessionTracker(context: Context) {
             ?.takeIf { capacity -> designCapacityMah == null || capacity <= designCapacityMah * MAX_ACCEPTED_OVER_DESIGN }
             ?: return false
         val quality = CapacitySessionQuality.calculate(startLevel, levelPercent, measured * (levelPercent - startLevel) / 100.0, activeChargeDurationMs, activeGaugeMah, activeCurrentMah)
-        sessions.add(FullChargeSession(measured, chargeForCapacity, activeChargeDurationMs, activeChargeStartedAtMs, wallNowMs, startLevel, quality))
+        val benchmark = startLevel <= BENCHMARK_START_LEVEL_PERCENT
+        sessions.add(
+            FullChargeSession(
+                estimatedCapacityMah = measured,
+                chargedMah = chargeForCapacity,
+                durationMs = activeChargeDurationMs,
+                startedAtMs = activeChargeStartedAtMs,
+                completedAtMs = wallNowMs,
+                startLevelPercent = startLevel,
+                qualityPercent = quality,
+                benchmark = benchmark,
+            )
+        )
         while (sessions.size > MAX_STORED_SESSIONS) sessions.removeAt(0)
         sessionSnapshot = sessions.toList()
         cachedLearnedCapacityMah = calculateLearnedCapacity(sessionSnapshot)
@@ -190,7 +211,16 @@ class CapacitySessionTracker(context: Context) {
 
     private fun persistSessions() {
         prefs.edit().putString(KEY_SESSIONS, sessions.joinToString(";") {
-            listOf(it.estimatedCapacityMah, it.chargedMah, it.durationMs, it.startedAtMs, it.completedAtMs, it.startLevelPercent, it.qualityPercent).joinToString(",")
+            listOf(
+                it.estimatedCapacityMah,
+                it.chargedMah,
+                it.durationMs,
+                it.startedAtMs,
+                it.completedAtMs,
+                it.startLevelPercent,
+                it.qualityPercent,
+                it.benchmark,
+            ).joinToString(",")
         }).apply()
     }
 
@@ -198,7 +228,7 @@ class CapacitySessionTracker(context: Context) {
         val raw = prefs.getString(KEY_SESSIONS, null) ?: return emptyList()
         return raw.split(';').mapNotNull { item ->
             val parts = item.split(',')
-            if (parts.size !in 5..7) return@mapNotNull null
+            if (parts.size !in 5..8) return@mapNotNull null
             val capacity = parts[0].toDoubleOrNull()?.takeIf { it in MIN_CAPACITY_MAH..MAX_CAPACITY_MAH } ?: return@mapNotNull null
             val charged = parts[1].toDoubleOrNull()?.takeIf { it >= 0.0 } ?: return@mapNotNull null
             val duration = parts[2].toLongOrNull()?.takeIf { it >= 0L } ?: return@mapNotNull null
@@ -207,7 +237,8 @@ class CapacitySessionTracker(context: Context) {
             val startLevel = parts.getOrNull(5)?.toIntOrNull() ?: ARM_LEVEL_PERCENT
             if (startLevel !in 0..ARM_LEVEL_PERCENT) return@mapNotNull null
             val quality = parts.getOrNull(6)?.toIntOrNull()?.coerceIn(0, 100) ?: 70
-            FullChargeSession(capacity, charged, duration, started, completed, startLevel, quality)
+            val benchmark = parts.getOrNull(7)?.toBooleanStrictOrNull() ?: false
+            FullChargeSession(capacity, charged, duration, started, completed, startLevel, quality, benchmark)
         }.takeLast(MAX_STORED_SESSIONS)
     }
 
@@ -246,6 +277,7 @@ class CapacitySessionTracker(context: Context) {
         private const val MIN_SOURCE_MAH = 50.0
         private const val MAX_SOURCE_DISAGREEMENT_RATIO = 0.35
         private const val ARM_LEVEL_PERCENT = 15
+        private const val BENCHMARK_START_LEVEL_PERCENT = 5
         private const val REQUIRED_STABLE_FULL_SAMPLES = 2
     }
 }
