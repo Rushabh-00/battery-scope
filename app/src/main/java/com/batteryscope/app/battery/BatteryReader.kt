@@ -35,7 +35,9 @@ class BatteryReader(context: Context) {
         val currentA = currentReader.readAmps()
         val chargeCurrentA = readBatteryChargeCurrentA()
         val capacityInfo = capacityReader.read(voltageV)
-        val designCapacityMah = capacityPreferences.designCapacityMah ?: cachedDesignCapacityMah ?: capacityInfo.designMah.also { if (it != null) cachedDesignCapacityMah = it }
+        val designCapacityMah = capacityPreferences.designCapacityMah ?: cachedDesignCapacityMah ?: capacityInfo.designMah.also {
+            if (it != null) cachedDesignCapacityMah = it
+        }
         val powerW = if (currentA != null && voltageV != null) currentA * voltageV else null
         val energyWh = readEnergyWh() ?: if (remainingMah != null && voltageV != null) remainingMah / 1000.0 * voltageV else null
         val snapshot = BatterySnapshot(
@@ -61,7 +63,7 @@ class BatteryReader(context: Context) {
     }
 
     private fun readBatteryChargeCurrentA(): Double? {
-        for (property in intArrayOf(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE, BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)) {
+        for (property in CURRENT_PROPERTIES) {
             val microamps = batteryManager?.getLongProperty(property)?.takeUnless { it == Long.MIN_VALUE || it == 0L } ?: continue
             val amps = microamps / 1_000_000.0
             if (amps.isFinite() && abs(amps) <= 10.0) return amps
@@ -72,6 +74,13 @@ class BatteryReader(context: Context) {
     private fun readEnergyWh(): Double? {
         val nanoWh = batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER) ?: Long.MIN_VALUE
         return nanoWh.takeIf { it > 0 }?.toDouble()?.div(1_000_000_000.0)
+    }
+
+    private companion object {
+        val CURRENT_PROPERTIES = intArrayOf(
+            BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE,
+            BatteryManager.BATTERY_PROPERTY_CURRENT_NOW,
+        )
     }
 }
 
