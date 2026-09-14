@@ -1,6 +1,7 @@
 package com.batteryscope.app.battery
 
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Robust battery health from validated charge sessions with fuel-gauge capacity used only as corroboration. */
 object BatteryHealthCalculator {
@@ -26,7 +27,7 @@ object BatteryHealthCalculator {
         val benchmark = sessions.asReversed().firstOrNull { it.benchmark }
         if (benchmark != null) {
             val health = (benchmark.estimatedCapacityMah / design * 100.0).coerceIn(0.0, 100.0)
-            val confidence = (70 + benchmark.qualityPercent * 0.20).toInt().coerceIn(70, 90)
+            val confidence = (70 + benchmark.qualityPercent * 0.20).roundToInt().coerceIn(70, 90)
             return Result(health, confidence, (design - benchmark.estimatedCapacityMah).coerceAtLeast(0.0))
         }
 
@@ -79,7 +80,7 @@ object BatteryHealthCalculator {
         }
         val averageQuality = (samples.sumOf { it.weight } / samples.size).coerceIn(0.25, 1.0)
         val countConfidence = when (samples.size) { 1 -> 20; 2 -> 40; 3 -> 60; 4 -> 80; else -> 100 }
-        val confidence = (countConfidence * (0.6 + 0.4 * averageQuality)).toInt().coerceIn(0, 100)
+        val confidence = (countConfidence * (0.6 + 0.4 * averageQuality)).roundToInt().coerceIn(0, 100)
         val health = (estimated / design * 100.0).coerceIn(0.0, 100.0)
         val wear = (design - estimated).coerceAtLeast(0.0)
         return Result(health, confidence, wear)
