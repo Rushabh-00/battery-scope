@@ -85,7 +85,11 @@ class BatteryMonitoringService : Service() {
                 if (settings.notificationChargeTimeEstimate) formatChargeTimeEstimate(value)?.let(::add)
             }
         }.orEmpty()
-        val contentText = detailLines.firstOrNull() ?: "BatteryScope • monitoring"
+        val contentText = when {
+            detailLines.isEmpty() -> "BatteryScope • monitoring"
+            detailLines.size == 1 -> detailLines.first()
+            else -> detailLines.joinToString(" • ")
+        }
 
         val openIntent = PendingIntent.getActivity(
             this,
