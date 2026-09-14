@@ -9,9 +9,10 @@ class CurrentReader(
     var invertChargingPolarity: Boolean,
 ) {
     private val currentFiles = discoverCurrentFiles()
+    private val candidates = ArrayList<Candidate>(32)
 
     fun readAmps(): Double? {
-        val candidates = ArrayList<Candidate>()
+        candidates.clear()
         addPropertyCandidate(candidates, BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
         addPropertyCandidate(candidates, BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
         readSysfsCandidates(candidates)
@@ -30,7 +31,7 @@ class CurrentReader(
         val value = batteryManager?.getLongProperty(property)
             ?.takeUnless { it == Long.MIN_VALUE || it == 0L }
             ?: return
-        target.addAll(normalizeCandidates(value.toDouble()))
+        addNormalizedCandidates(target, value.toDouble())
     }
 
     private fun readSysfsCandidates(target: MutableList<Candidate>) {
@@ -38,7 +39,7 @@ class CurrentReader(
             if (!path.isFile || !path.canRead()) continue
             val raw = path.readText().trim().toDoubleOrNull() ?: continue
             if (raw == 0.0) continue
-            target.addAll(normalizeCandidates(raw))
+            addNormalizedCandidates(target, raw)
         }
     }
 
@@ -49,24 +50,22 @@ class CurrentReader(
     )
 
     /** Try common Android/sysfs current scales and modest correction factors. */
-    private fun normalizeCandidates(raw: Double): List<Candidate> {
+    private fun addNormalizedCandidates(target: MutableList<Candidate>, raw: Double) {
         val magnitude = abs(raw)
-        if (!magnitude.isFinite() || magnitude == 0.0) return emptyList()
+        if (!magnitude.isFinite() || magnitude == 0.0) return
 
         val base = when {
             magnitude >= 100_000.0 -> magnitude / 1_000_000.0
             magnitude >= 100.0 -> magnitude / 1_000.0
             else -> magnitude
         }
-        val multipliers = doubleArrayOf(1.0, 0.5, 2.0, 1000.0)
-        val result = ArrayList<Candidate>(multipliers.size)
+        val multipliers = MULTIPLIERS
         for (index in multipliers.indices) {
             val amps = base * multipliers[index]
             if (amps.isFinite() && amps in MIN_PLAUSIBLE_AMPS..MAX_PLAUSIBLE_AMPS) {
-                result.add(Candidate(amps, raw, index))
+                target.add(Candidate(amps, raw, index))
             }
         }
-        return result
     }
 
     private fun score(amps: Double): Double = when {
@@ -83,8 +82,9 @@ class CurrentReader(
         .map { File(it, "current_now") }
         .filter { it.isFile && it.canRead() }
 
-    companion object {
-        private const val MIN_PLAUSIBLE_AMPS = 0.005
-        private const val MAX_PLAUSIBLE_AMPS = 10.0
+    private companion object {
+        val MULTIPLIERS = doubleArrayOf(1.0, 0.5, 2.0, 1000.0)
+        const val MIN_PLAUSIBLE_AMPS = 0.005
+        const val MAX_PLAUSIBLE_AMPS = 10.0
     }
 }
