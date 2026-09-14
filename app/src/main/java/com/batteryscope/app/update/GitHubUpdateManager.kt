@@ -92,15 +92,14 @@ object GitHubUpdateManager {
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(settingsIntent)
 
-            // The user can grant the permission in Settings without returning through
-            // the app's update button. Keep the downloaded APK and continue automatically
-            // as soon as the permission becomes available.
+            // The user can grant the permission in Settings without pressing the update
+            // button again. Keep the downloaded APK and continue as soon as it is allowed.
             var permitted = false
-            repeat(INSTALL_PERMISSION_WAIT_ATTEMPTS) {
+            for (attempt in 0 until INSTALL_PERMISSION_WAIT_ATTEMPTS) {
                 delay(INSTALL_PERMISSION_POLL_MS)
                 if (context.packageManager.canRequestPackageInstalls()) {
                     permitted = true
-                    return@repeat
+                    break
                 }
             }
             if (!permitted) {
