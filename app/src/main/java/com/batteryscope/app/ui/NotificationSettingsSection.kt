@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,8 +40,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.batteryscope.app.BuildConfig
 import com.batteryscope.app.monitor.BatteryMonitoringController
 import com.batteryscope.app.settings.AppSettings
+import com.batteryscope.app.update.GitHubUpdateManager
 
 @Composable
 fun NotificationSettingsSection(settings: AppSettings) {
@@ -50,8 +53,28 @@ fun NotificationSettingsSection(settings: AppSettings) {
     var icon by remember { mutableStateOf(settings.notificationIcon) }
     var entries by remember { mutableStateOf(settings.notificationEntries - settings.notificationIcon) }
     var chargeTime by remember { mutableStateOf(settings.notificationChargeTimeEstimate) }
+    var automaticUpdateCheck by remember { mutableStateOf(settings.automaticUpdateCheck) }
+    var automaticUpdateMessage by remember { mutableStateOf("") }
     var optimizationIgnored by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
     val metrics = AppSettings.NotificationMetric.entries
+
+    LaunchedEffect(automaticUpdateCheck) {
+        if (!automaticUpdateCheck) {
+            automaticUpdateMessage = ""
+        } else {
+            automaticUpdateMessage = "Checking GitHub for updates…"
+            val result = runCatching {
+                GitHubUpdateManager.checkLatest(BuildConfig.VERSION_NAME)
+            }
+            result.onSuccess { release ->
+                automaticUpdateMessage = release?.let {
+                    "Update available: ${it.versionName}. Use the App update section below to install it."
+                } ?: "You're up to date."
+            }.onFailure {
+                automaticUpdateMessage = "Automatic update check failed. You can try again manually."
+            }
+        }
+    }
 
     Card(shape = RoundedCornerShape(28.dp)) {
         Column(Modifier.fillMaxWidth().padding(22.dp)) {
@@ -170,6 +193,39 @@ fun NotificationSettingsSection(settings: AppSettings) {
                         chargeTime = it
                         settings.notificationChargeTimeEstimate = it
                     },
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Automatic update check", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        "Checks GitHub automatically when Settings is opened. Off by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = automaticUpdateCheck,
+                    onCheckedChange = {
+                        automaticUpdateCheck = it
+                        settings.automaticUpdateCheck = it
+                    },
+                )
+            }
+            if (automaticUpdateMessage.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    automaticUpdateMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
