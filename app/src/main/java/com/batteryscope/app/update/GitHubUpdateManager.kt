@@ -95,12 +95,15 @@ object GitHubUpdateManager {
             // The user can grant the permission in Settings without returning through
             // the app's update button. Keep the downloaded APK and continue automatically
             // as soon as the permission becomes available.
+            var permitted = false
             repeat(INSTALL_PERMISSION_WAIT_ATTEMPTS) {
                 delay(INSTALL_PERMISSION_POLL_MS)
-                if (context.packageManager.canRequestPackageInstalls()) return@repeat
+                if (context.packageManager.canRequestPackageInstalls()) {
+                    permitted = true
+                    return@repeat
+                }
             }
-
-            if (!context.packageManager.canRequestPackageInstalls()) {
+            if (!permitted) {
                 error("Install permission was not granted")
             }
         }
