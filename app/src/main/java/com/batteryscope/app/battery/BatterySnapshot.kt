@@ -9,6 +9,7 @@ data class BatterySnapshot(
     val temperatureC: Double?,
     val remainingMah: Double?,
     val batteryCapacityMah: Double?,
+    val fullChargeCapacityMah: Double? = null,
     val powerW: Double?,
     val energyWh: Double?,
     val sessionAnalysis: BatterySessionAnalyzer.Analysis? = null,
