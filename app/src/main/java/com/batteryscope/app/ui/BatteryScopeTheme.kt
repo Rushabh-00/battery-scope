@@ -16,10 +16,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -58,11 +55,6 @@ fun BatteryScopeTheme(
     val themeKey = remember(mode, colorMode, accentColorArgb, colorStyle) {
         ThemeKey(mode, colorMode, accentColorArgb, colorStyle)
     }
-    val contentScale by animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = tween(durationMillis = 260),
-        label = "themeContentScale",
-    )
     val typography = batteryScopeTypography()
 
     MaterialTheme(
@@ -79,13 +71,7 @@ fun BatteryScopeTheme(
             contentKey = { it },
             label = "themeTransition",
         ) {
-            androidx.compose.foundation.layout.Box(Modifier) {
-                androidx.compose.ui.graphics.graphicsLayer {
-                    scaleX = contentScale
-                    scaleY = contentScale
-                }
-                content()
-            }
+            content()
         }
     }
 }
@@ -207,3 +193,5 @@ private fun mix(first: Color, second: Color, secondWeight: Float): Color = Color
     blue = first.blue * (1f - secondWeight) + second.blue * secondWeight,
     alpha = 1f,
 )
+
+private fun tween(durationMillis: Int) = androidx.compose.animation.core.tween<Float>(durationMillis)
