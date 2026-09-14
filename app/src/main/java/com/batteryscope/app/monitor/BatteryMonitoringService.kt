@@ -85,6 +85,9 @@ class BatteryMonitoringService : Service() {
 
     private fun buildNotification(snapshot: BatterySnapshot?): Notification {
         val iconMetric = settings.notificationIcon
+        val currentUnit = settings.currentUnit
+        val temperatureUnit = settings.temperatureUnit
+        val includeChargeTime = settings.notificationChargeTimeEstimate
         val entryMetrics = settings.notificationEntries
             .asSequence()
             .filter { it != iconMetric }
@@ -92,8 +95,8 @@ class BatteryMonitoringService : Service() {
             .toList()
         val detailLines = snapshot?.let { value ->
             buildList {
-                entryMetrics.forEach { add(formatMetric(value, it)) }
-                if (settings.notificationChargeTimeEstimate) formatChargeTimeEstimate(value)?.let(::add)
+                entryMetrics.forEach { add(formatMetric(value, it, currentUnit, temperatureUnit)) }
+                if (includeChargeTime) formatChargeTimeEstimate(value)?.let(::add)
             }
         }.orEmpty()
         val contentText = when {
@@ -103,7 +106,7 @@ class BatteryMonitoringService : Service() {
         }
 
         val builder = Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(snapshot?.let { renderMetricIcon(it, iconMetric) } ?: renderPlaceholderIcon(iconMetric))
+            .setSmallIcon(snapshot?.let { renderMetricIcon(it, iconMetric, currentUnit, temperatureUnit) } ?: renderPlaceholderIcon(iconMetric, currentUnit, temperatureUnit))
             .setContentTitle("BatteryScope")
             .setContentText(contentText)
             .setOngoing(true)
@@ -120,13 +123,18 @@ class BatteryMonitoringService : Service() {
     private fun renderMetricIcon(
         snapshot: BatterySnapshot,
         metric: AppSettings.NotificationMetric,
+        currentUnit: AppSettings.CurrentUnit,
+        temperatureUnit: AppSettings.TemperatureUnit,
     ): Icon {
-        val (value, unit) = iconParts(snapshot, metric)
+        val (value, unit) = iconParts(snapshot, metric, currentUnit, temperatureUnit)
         return renderIcon(value, unit)
     }
 
-    private fun renderPlaceholderIcon(metric: AppSettings.NotificationMetric): Icon =
-        renderIcon("—", iconUnit(metric))
+    private fun renderPlaceholderIcon(
+        metric: AppSettings.NotificationMetric,
+        currentUnit: AppSettings.CurrentUnit,
+        temperatureUnit: AppSettings.TemperatureUnit,
+    ): Icon = renderIcon("—", iconUnit(metric, currentUnit, temperatureUnit))
 
     private fun renderIcon(value: String, unit: String): Icon {
         val density = resources.displayMetrics.density
@@ -160,38 +168,49 @@ class BatteryMonitoringService : Service() {
     private fun iconParts(
         snapshot: BatterySnapshot,
         metric: AppSettings.NotificationMetric,
+        currentUnit: AppSettings.CurrentUnit,
+        temperatureUnit: AppSettings.TemperatureUnit,
     ): Pair<String, String> = when (metric) {
         AppSettings.NotificationMetric.POWER ->
             (snapshot.powerW?.let { f1(it) } ?: "—") to "W"
         AppSettings.NotificationMetric.CURRENT ->
-            (snapshot.currentA?.let { currentValue(it) } ?: "—") to currentUnitLabel()
+            (snapshot.currentA?.let { currentValue(it, currentUnit) } ?: "—") to currentUnit.value
         AppSettings.NotificationMetric.CHARGE ->
             (snapshot.remainingMah?.let { f1(it / 1000.0) } ?: "—") to "Ah"
         AppSettings.NotificationMetric.TEMPERATURE ->
-            (snapshot.temperatureC?.let { temperatureValue(it) } ?: "—") to temperatureUnitLabel()
+            (snapshot.temperatureC?.let { temperatureValue(it, temperatureUnit) } ?: "—") to temperatureUnit.value
         AppSettings.NotificationMetric.VOLTAGE ->
             (snapshot.voltageV?.let { f1(it) } ?: "—") to "V"
         AppSettings.NotificationMetric.ENERGY ->
             (snapshot.energyWh?.let { f1(it) } ?: "—") to "Wh"
         AppSettings.NotificationMetric.PERCENT ->
-            (snapshot.levelPercent?.toString() ?: "—") to "%"
+            (snapshot.levelPercent.toString()) to "%"
     }
 
-    private fun iconUnit(metric: AppSettings.NotificationMetric): String = when (metric) {
+    private fun iconUnit(
+        metric: AppSettings.NotificationMetric,
+        currentUnit: AppSettings.CurrentUnit,
+        temperatureUnit: AppSettings.TemperatureUnit,
+    ): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "W"
-        AppSettings.NotificationMetric.CURRENT -> currentUnitLabel()
+        AppSettings.NotificationMetric.CURRENT -> currentUnit.value
         AppSettings.NotificationMetric.CHARGE -> "Ah"
-        AppSettings.NotificationMetric.TEMPERATURE -> temperatureUnitLabel()
+        AppSettings.NotificationMetric.TEMPERATURE -> temperatureUnit.value
         AppSettings.NotificationMetric.VOLTAGE -> "V"
         AppSettings.NotificationMetric.ENERGY -> "Wh"
         AppSettings.NotificationMetric.PERCENT -> "%"
     }
 
-    private fun formatMetric(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric): String = when (metric) {
+    private fun formatMetric(
+        snapshot: BatterySnapshot,
+        metric: AppSettings.NotificationMetric,
+        currentUnit: AppSettings.CurrentUnit,
+        temperatureUnit: AppSettings.TemperatureUnit,
+    ): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "Power ${snapshot.powerW?.let { "${f1(it)} W" } ?: "—"}"
-        AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let(::currentText) ?: "—"}"
+        AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let { currentText(it, currentUnit) } ?: "—"}"
         AppSettings.NotificationMetric.CHARGE -> "Charge ${snapshot.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—"}"
-        AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let(::temperatureText) ?: "—"}"
+        AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let { temperatureText(it, temperatureUnit) } ?: "—"}"
         AppSettings.NotificationMetric.VOLTAGE -> "Voltage ${snapshot.voltageV?.let { "${f1(it)} V" } ?: "—"}"
         AppSettings.NotificationMetric.ENERGY -> "Energy ${snapshot.energyWh?.let { "${f1(it)} Wh" } ?: "—"}"
         AppSettings.NotificationMetric.PERCENT -> "Charge level ${snapshot.levelPercent}%"
@@ -211,25 +230,21 @@ class BatteryMonitoringService : Service() {
         return if (hours > 0) "Charge time ≈ ${hours}h ${remainder}m" else "Charge time ≈ ${remainder}m"
     }
 
-    private fun currentValue(value: Double): String = when (settings.currentUnit) {
+    private fun currentValue(value: Double, unit: AppSettings.CurrentUnit): String = when (unit) {
         AppSettings.CurrentUnit.AMPERE -> f1(value)
         AppSettings.CurrentUnit.MILLIAMPERE -> f0(value * 1000.0)
     }
 
-    private fun currentText(value: Double): String =
-        "${currentValue(value)} ${currentUnitLabel()}"
+    private fun currentText(value: Double, unit: AppSettings.CurrentUnit): String =
+        "${currentValue(value, unit)} ${unit.value}"
 
-    private fun currentUnitLabel(): String = settings.currentUnit.value
-
-    private fun temperatureValue(valueC: Double): String = when (settings.temperatureUnit) {
+    private fun temperatureValue(valueC: Double, unit: AppSettings.TemperatureUnit): String = when (unit) {
         AppSettings.TemperatureUnit.CELSIUS -> f1(valueC)
         AppSettings.TemperatureUnit.FAHRENHEIT -> f1(valueC * 9.0 / 5.0 + 32.0)
     }
 
-    private fun temperatureText(valueC: Double): String =
-        "${temperatureValue(valueC)} ${temperatureUnitLabel()}"
-
-    private fun temperatureUnitLabel(): String = settings.temperatureUnit.value
+    private fun temperatureText(valueC: Double, unit: AppSettings.TemperatureUnit): String =
+        "${temperatureValue(valueC, unit)} ${unit.value}"
 
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= 34) {
