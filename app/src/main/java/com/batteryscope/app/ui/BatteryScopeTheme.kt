@@ -9,7 +9,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -20,7 +23,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.batteryscope.app.settings.UiPreferences
 
@@ -61,17 +66,25 @@ fun BatteryScopeTheme(
         colorScheme = colors,
         typography = typography,
     ) {
-        AnimatedContent(
-            targetState = themeKey,
-            modifier = Modifier,
-            transitionSpec = {
-                (fadeIn(tween(220)) + scaleIn(initialScale = 0.985f, animationSpec = tween(260))) togetherWith
-                    (fadeOut(tween(120)) + scaleOut(targetScale = 1.015f, animationSpec = tween(180)))
-            },
-            contentKey = { it },
-            label = "themeTransition",
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground,
         ) {
-            content()
+            AnimatedContent(
+                targetState = themeKey,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    (fadeIn(tween(220)) + scaleIn(initialScale = 0.985f, animationSpec = tween(260))) togetherWith
+                        (fadeOut(tween(120)) + scaleOut(targetScale = 1.015f, animationSpec = tween(180)))
+                },
+                contentKey = { it },
+                label = "themeTransition",
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    content()
+                }
+            }
         }
     }
 }
@@ -83,22 +96,27 @@ private data class ThemeKey(
     val colorStyle: UiPreferences.ColorStyle,
 )
 
-private fun batteryScopeTypography() = Typography(
-    displayLarge = androidx.compose.material3.Typography().displayLarge.copy(
-        fontWeight = FontWeight.Bold,
-        letterSpacing = (-0.5).sp,
-    ),
-    displayMedium = androidx.compose.material3.Typography().displayMedium.copy(
-        fontWeight = FontWeight.Bold,
-        letterSpacing = (-0.4).sp,
-    ),
-    headlineLarge = androidx.compose.material3.Typography().headlineLarge.copy(fontWeight = FontWeight.Bold),
-    headlineMedium = androidx.compose.material3.Typography().headlineMedium.copy(fontWeight = FontWeight.Bold),
-    headlineSmall = androidx.compose.material3.Typography().headlineSmall.copy(fontWeight = FontWeight.Bold),
-    titleLarge = androidx.compose.material3.Typography().titleLarge.copy(fontWeight = FontWeight.SemiBold),
-    titleMedium = androidx.compose.material3.Typography().titleMedium.copy(fontWeight = FontWeight.SemiBold),
-    labelLarge = androidx.compose.material3.Typography().labelLarge.copy(fontWeight = FontWeight.SemiBold),
-)
+private fun batteryScopeTypography(): Typography {
+    val base = androidx.compose.material3.Typography()
+    val family = FontFamily.SansSerif
+    return Typography(
+        displayLarge = base.displayLarge.copy(fontFamily = family, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp),
+        displayMedium = base.displayMedium.copy(fontFamily = family, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
+        displaySmall = base.displaySmall.copy(fontFamily = family, fontWeight = FontWeight.Bold),
+        headlineLarge = base.headlineLarge.copy(fontFamily = family, fontWeight = FontWeight.Bold),
+        headlineMedium = base.headlineMedium.copy(fontFamily = family, fontWeight = FontWeight.Bold),
+        headlineSmall = base.headlineSmall.copy(fontFamily = family, fontWeight = FontWeight.Bold),
+        titleLarge = base.titleLarge.copy(fontFamily = family, fontWeight = FontWeight.SemiBold),
+        titleMedium = base.titleMedium.copy(fontFamily = family, fontWeight = FontWeight.SemiBold),
+        titleSmall = base.titleSmall.copy(fontFamily = family, fontWeight = FontWeight.SemiBold),
+        bodyLarge = base.bodyLarge.copy(fontFamily = family, lineHeight = 24.sp),
+        bodyMedium = base.bodyMedium.copy(fontFamily = family, lineHeight = 21.sp),
+        bodySmall = base.bodySmall.copy(fontFamily = family, lineHeight = 18.sp),
+        labelLarge = base.labelLarge.copy(fontFamily = family, fontWeight = FontWeight.SemiBold),
+        labelMedium = base.labelMedium.copy(fontFamily = family, fontWeight = FontWeight.Medium),
+        labelSmall = base.labelSmall.copy(fontFamily = family, fontWeight = FontWeight.Medium),
+    )
+}
 
 private fun argbColorToComposeColor(value: Long): Color {
     val argb = value.toInt()
