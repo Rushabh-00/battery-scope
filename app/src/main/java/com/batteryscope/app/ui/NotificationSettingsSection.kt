@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -84,11 +83,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
 
     Card(shape = RoundedCornerShape(28.dp)) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
                     Text("Notifications", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
@@ -120,7 +115,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
-            SettingGroupTitle("Status bar icon", "Choose the metric and adjust the text scale. Changes are applied to the live notification.")
+            SettingGroupTitle("Status bar icon", "Choose the metric and adjust its text scale. Android controls the physical icon slot.")
             Spacer(Modifier.height(10.dp))
             Text("Icon metric", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
@@ -134,11 +129,11 @@ fun NotificationSettingsSection(settings: AppSettings) {
             Spacer(Modifier.height(12.dp))
             NotificationIconPreview(icon, iconSize)
             Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("Icon size", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Status-bar text scale", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Status-bar bounds are controlled by Android; this changes how much of that space the metric text uses.",
+                        "Android keeps the status-bar slot size fixed. This controls how much of that slot the metric uses.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -150,7 +145,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
                 Text("70%", style = MaterialTheme.typography.labelSmall)
                 Slider(
                     value = iconSize.toFloat(),
-                    onValueChange = { value -> iconSize = (value / 5f).roundToInt().coerceIn(14, 28) * 5 },
+                    onValueChange = { value -> iconSize = (value / 5f).roundToInt() * 5 },
                     onValueChangeFinished = {
                         settings.notificationIconSizePercent = iconSize
                         BatteryMonitoringController.refresh(context)
@@ -173,11 +168,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
                 BatteryMonitoringController.refresh(context)
             }
             Spacer(Modifier.height(12.dp))
-            SettingToggle(
-                title = "Charge time estimate",
-                body = "Show an estimated time remaining until full while charging.",
-                checked = chargeTime,
-            ) {
+            SettingToggle("Charge time estimate", "Show an estimated time remaining until full while charging.", chargeTime) {
                 chargeTime = it
                 settings.notificationChargeTimeEstimate = it
                 BatteryMonitoringController.refresh(context)
@@ -186,11 +177,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
             Spacer(Modifier.height(20.dp))
             SettingGroupTitle("Background reliability", "Android and some phone brands may restrict background apps.")
             Spacer(Modifier.height(10.dp))
-            Text(
-                "Sampling interval: ${formatInterval(settings.updateIntervalMs)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text("Sampling interval: ${formatInterval(settings.updateIntervalMs)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
@@ -207,33 +194,19 @@ fun NotificationSettingsSection(settings: AppSettings) {
                 },
                 Modifier.fillMaxWidth(),
                 enabled = !optimizationIgnored,
-            ) {
-                Text(if (optimizationIgnored) "Battery optimization is already relaxed" else "Allow unrestricted battery use")
-            }
-            Text(
-                "Some phones also have an OEM Auto-start switch. Enable it when your device stops background monitoring.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            ) { Text(if (optimizationIgnored) "Battery optimization is already relaxed" else "Allow unrestricted battery use") }
+            Text("Some phones also have an OEM Auto-start switch. Enable it when your device stops background monitoring.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Spacer(Modifier.height(20.dp))
             SettingGroupTitle("Update checks", "Keep automatic checking optional; you can always use App update below.")
             Spacer(Modifier.height(10.dp))
-            SettingToggle(
-                title = "Automatic update check",
-                body = "Checks GitHub when Settings opens. Off by default.",
-                checked = automaticUpdateCheck,
-            ) {
+            SettingToggle("Automatic update check", "Checks GitHub when Settings opens. Off by default.", automaticUpdateCheck) {
                 automaticUpdateCheck = it
                 settings.automaticUpdateCheck = it
             }
             if (automaticUpdateMessage.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    automaticUpdateMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(automaticUpdateMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -248,11 +221,7 @@ private fun SettingGroupTitle(title: String, body: String) {
 
 @Composable
 private fun SettingToggle(title: String, body: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -263,56 +232,42 @@ private fun SettingToggle(title: String, body: String, checked: Boolean, onCheck
 
 @Composable
 private fun NotificationIconPreview(metric: AppSettings.NotificationMetric, sizePercent: Int) {
-    val preview = when (metric) {
+    val (value, unit) = when (metric) {
         AppSettings.NotificationMetric.POWER -> "12.4" to "W"
         AppSettings.NotificationMetric.CURRENT -> "1.8" to "A"
         AppSettings.NotificationMetric.CHARGE -> "3.9" to "Ah"
-        AppSettings.NotificationMetric.TEMPERATURE -> "36" to "°C"
+        AppSettings.NotificationMetric.TEMPERATURE -> "36.6" to "°C"
         AppSettings.NotificationMetric.VOLTAGE -> "4.2" to "V"
         AppSettings.NotificationMetric.ENERGY -> "16.8" to "Wh"
-        AppSettings.NotificationMetric.PERCENT -> "31" to "%"
+        AppSettings.NotificationMetric.PERCENT -> "45" to "%"
     }
     val scale = sizePercent / 100f
-    Card(
-        colors = androidx.compose.material3.CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Text("Status-bar preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
             Box(
                 Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(Color.Black)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(11.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        preview.first,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontSize = (16f * scale).sp,
-                            lineHeight = (17f * scale).sp,
-                        ),
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        preview.second,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = (9f * scale).sp,
-                            lineHeight = (10f * scale).sp,
-                        ),
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("2:00", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.weight(1f))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(value, color = Color.White, fontSize = (7.2f * scale).sp, fontWeight = FontWeight.Bold)
+                        Text(unit, color = Color.White, fontSize = (4.2f * scale).sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 1.dp, bottom = 1.dp))
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("◉  5G  45%", color = Color.White, style = MaterialTheme.typography.labelSmall)
                 }
             }
-            Spacer(Modifier.size(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Live preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Text("${preview.first} ${preview.second}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Applied automatically when you release the slider.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Spacer(Modifier.height(6.dp))
+            Text("Preview uses the same idea as the real status-bar slot. Android controls the final physical size.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -343,18 +298,11 @@ private fun NotificationMetricRow(
                             .clip(RoundedCornerShape(13.dp))
                             .background(fill)
                             .border(1.dp, borderColor, RoundedCornerShape(13.dp))
-                            .then(
-                                if (!locked) Modifier.selectable(selected = active, onClick = { onSelected(metric) }, role = Role.Checkbox)
-                                else Modifier
-                            )
+                            .then(if (!locked) Modifier.selectable(selected = active, onClick = { onSelected(metric) }, role = Role.Checkbox) else Modifier)
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            metric.value,
-                            color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                        )
+                        Text(metric.value, color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
                 repeat(4 - rowMetrics.size) { Spacer(Modifier.weight(1f)) }
