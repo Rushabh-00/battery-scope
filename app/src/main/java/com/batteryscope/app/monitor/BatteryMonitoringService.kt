@@ -146,17 +146,18 @@ class BatteryMonitoringService : Service() {
         ).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
+        val scale = settings.notificationIconSizePercent / 100f
         val canvas = Canvas(bitmap)
         val maxWidth = size * 0.97f
 
-        iconPaint.textSize = 58f * density
+        iconPaint.textSize = 58f * density * scale
         val measuredValue = iconPaint.measureText(value)
         if (measuredValue > maxWidth && measuredValue > 0f) {
             iconPaint.textSize *= maxWidth / measuredValue
         }
         canvas.drawText(value, size / 2f, size * 0.66f, iconPaint)
 
-        iconPaint.textSize = 10f * density
+        iconPaint.textSize = 10f * density * scale
         val measuredUnit = iconPaint.measureText(unit)
         if (measuredUnit > maxWidth && measuredUnit > 0f) {
             iconPaint.textSize *= maxWidth / measuredUnit
