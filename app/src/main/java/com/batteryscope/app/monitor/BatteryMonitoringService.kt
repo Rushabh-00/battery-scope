@@ -35,7 +35,7 @@ class BatteryMonitoringService : Service() {
     private lateinit var settings: AppSettings
     private lateinit var openIntent: PendingIntent
     private var iconBitmap: Bitmap? = null
-    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
         typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
         style = Paint.Style.FILL
         color = Color.WHITE
@@ -61,7 +61,10 @@ class BatteryMonitoringService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == BatteryMonitoringController.ACTION_REFRESH) {
-            BatteryRuntime.latest()?.let(::updateNotification)
+            scope.launch {
+                runCatching { BatteryRuntime.read(this@BatteryMonitoringService) }
+                    .onSuccess { snapshot -> updateNotification(snapshot) }
+            }
         }
         startMonitoring()
         return START_STICKY
@@ -142,33 +145,32 @@ class BatteryMonitoringService : Service() {
 
     private fun renderIcon(value: String, unit: String): Icon {
         val density = resources.displayMetrics.density
-        val size = (48f * density).toInt()
-        val bitmap = iconBitmap?.takeIf { it.width == size } ?: Bitmap.createBitmap(
+        val size = (96f * density).toInt().coerceAtLeast(96)
+        val bitmap = iconBitmap?.takeIf { it.width == size && !it.isRecycled } ?: Bitmap.createBitmap(
             size,
             size,
-            Bitmap.Config.ALPHA_8,
+            Bitmap.Config.ARGB_8888,
         ).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
         val scale = settings.notificationIconSizePercent / 100f
         val canvas = Canvas(bitmap)
-        val sizeRange = (scale - 0.7f) / 0.7f
-        val maxWidth = size * (0.72f + 0.26f * sizeRange.coerceIn(0f, 1f))
+        val maxWidth = size * 0.82f
         val centerX = size / 2f
 
-        iconPaint.textSize = 60f * density * scale
+        iconPaint.textSize = 34f * density * scale
         val measuredValue = iconPaint.measureText(value)
         if (measuredValue > maxWidth && measuredValue > 0f) {
             iconPaint.textSize *= maxWidth / measuredValue
         }
-        canvas.drawText(value, centerX, size * 0.64f, iconPaint)
+        canvas.drawText(value, centerX, size * 0.58f, iconPaint)
 
-        iconPaint.textSize = 11f * density * scale
+        iconPaint.textSize = 7.5f * density * scale
         val measuredUnit = iconPaint.measureText(unit)
         if (measuredUnit > maxWidth && measuredUnit > 0f) {
             iconPaint.textSize *= maxWidth / measuredUnit
         }
-        canvas.drawText(unit, centerX, size * 0.93f, iconPaint)
+        canvas.drawText(unit, centerX, size * 0.78f, iconPaint)
         return Icon.createWithBitmap(bitmap)
     }
 
