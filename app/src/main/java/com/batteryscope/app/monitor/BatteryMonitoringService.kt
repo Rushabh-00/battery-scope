@@ -90,7 +90,6 @@ class BatteryMonitoringService : Service() {
         val iconMetric = settings.notificationIcon
         val currentUnit = settings.currentUnit
         val temperatureUnit = settings.temperatureUnit
-        val includeChargeTime = settings.notificationChargeTimeEstimate
         val entryMetrics = settings.notificationEntries.asSequence()
             .filter { it != iconMetric }
             .sortedBy { it.ordinal }
@@ -98,7 +97,7 @@ class BatteryMonitoringService : Service() {
         val detailLines = snapshot?.let { value ->
             buildList {
                 entryMetrics.forEach { add(formatMetric(value, it, currentUnit, temperatureUnit)) }
-                if (includeChargeTime) formatChargeTimeEstimate(value)?.let(::add)
+                if (settings.notificationChargeTimeEstimate) formatChargeTimeEstimate(value)?.let(::add)
             }
         }.orEmpty()
         val contentText = when {
@@ -133,7 +132,7 @@ class BatteryMonitoringService : Service() {
             ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
-        // One predictable 0–100 control. There is no 300% boost or hidden multiplier.
+        // One predictable 0–100 control; never amplified beyond 100%.
         val scale = settings.notificationIconSizePercent(metric).coerceIn(0, 100) / 100f
         if (scale <= 0f) return Icon.createWithBitmap(bitmap)
 
@@ -155,21 +154,15 @@ class BatteryMonitoringService : Service() {
     }
 
     private fun compactIconValue(metric: AppSettings.NotificationMetric, raw: String): String = when (metric) {
-        AppSettings.NotificationMetric.PERCENT -> {
-            raw.toDoubleOrNull()?.let { f1(it.coerceIn(0.0, 100.0)) } ?: "—"
-        }
-        else -> {
-            val numeric = raw.toDoubleOrNull()
+        AppSettings.NotificationMetric.PERCENT -> raw.toDoubleOrNull()?.let { f1(it.coerceIn(0.0, 100.0)) } ?: "—"
+        else -> raw.toDoubleOrNull()?.let { value ->
             when {
-                numeric == null -> raw
-                abs(numeric) >= 100.0 -> {
-                    val rounded = numeric.toLong().coerceIn(-99L, 99L)
-                    String.format(Locale.US, "%02d", rounded)
-                }
-                abs(numeric) >= 10.0 -> String.format(Locale.US, "%02.0f", numeric)
-                else -> f2Compact(numeric)
+                abs(value) >= 100.0 -> String.format(Locale.US, "%02.0f", value.coerceIn(-99.0, 99.0))
+                abs(value) >= 10.0 -> String.format(Locale.US, "%02.0f", value)
+                abs(value) >= 1.0 -> String.format(Locale.US, "%.1f", value)
+                else -> String.format(Locale.US, "%.1f", value)
             }
-        }
+        } ?: raw
     }
 
     private fun iconParts(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): Pair<String, String> = when (metric) {
@@ -179,7 +172,7 @@ class BatteryMonitoringService : Service() {
         AppSettings.NotificationMetric.TEMPERATURE -> (snapshot.temperatureC?.let { temperatureValue(it, temperatureUnit) } ?: "—") to temperatureUnit.value
         AppSettings.NotificationMetric.VOLTAGE -> (snapshot.voltageV?.let { f1(it) } ?: "—") to "V"
         AppSettings.NotificationMetric.ENERGY -> (snapshot.energyWh?.let { f1(it) } ?: "—") to "Wh"
-        AppSettings.NotificationMetric.PERCENT -> (snapshot.levelPercent.toString()) to "%"
+        AppSettings.NotificationMetric.PERCENT -> snapshot.levelPercent.toString() to "%"
     }
 
     private fun iconUnit(metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): String = when (metric) {
@@ -261,11 +254,6 @@ class BatteryMonitoringService : Service() {
     private fun f0(value: Double) = String.format(Locale.US, "%.0f", value)
     private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
     private fun f2(value: Double) = String.format(Locale.US, "%.2f", value)
-    private fun f2Compact(value: Double): String = when {
-        value == 0.0 -> "00"
-        abs(value) < 1.0 -> String.format(Locale.US, "%.1f", value)
-        else -> String.format(Locale.US, "%.1f", value).take(3)
-    }
 
     private companion object {
         const val CHANNEL_ID = "battery_monitoring"
