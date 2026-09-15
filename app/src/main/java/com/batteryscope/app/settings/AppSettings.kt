@@ -58,11 +58,14 @@ class AppSettings(context: Context) {
         get() = NotificationMetric.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, NotificationMetric.TEMPERATURE.value))
         set(value) = preferences.edit().putString(KEY_NOTIFICATION_ICON, value.value).apply()
 
-    /** Legacy/global value kept for compatibility with older builds. */
+    /** Per-metric status-bar icon size. Kept at a simple 0–100 range. */
     var notificationIconSizePercent: Int
         get() = preferences.getInt(KEY_NOTIFICATION_ICON_SIZE_PERCENT, DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT)
             .coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT)
-        set(value) = preferences.edit().putInt(KEY_NOTIFICATION_ICON_SIZE_PERCENT, value.coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT)).apply()
+        set(value) = preferences.edit().putInt(
+            KEY_NOTIFICATION_ICON_SIZE_PERCENT,
+            value.coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT),
+        ).apply()
 
     fun notificationIconSizePercent(metric: NotificationMetric): Int = preferences.getInt(
         notificationIconSizeKey(metric),
@@ -90,22 +93,32 @@ class AppSettings(context: Context) {
         set(value) = preferences.edit().putBoolean(KEY_AUTOMATIC_UPDATE_CHECK, value).apply()
 
     enum class CurrentUnit(val value: String) {
-        AMPERE("A"), MILLIAMPERE("mA");
+        AMPERE("A"),
+        MILLIAMPERE("mA");
         companion object { fun fromValue(value: String?): CurrentUnit = entries.firstOrNull { it.value == value } ?: AMPERE }
     }
 
     enum class TemperatureUnit(val value: String) {
-        CELSIUS("°C"), FAHRENHEIT("°F");
+        CELSIUS("°C"),
+        FAHRENHEIT("°F");
         companion object { fun fromValue(value: String?): TemperatureUnit = entries.firstOrNull { it.value == value } ?: CELSIUS }
     }
 
     enum class ThemeMode(val value: String) {
-        AUTO("Auto"), LIGHT("Light"), DARK("Dark");
+        AUTO("Auto"),
+        LIGHT("Light"),
+        DARK("Dark");
         companion object { fun fromValue(value: String?): ThemeMode = entries.firstOrNull { it.value == value } ?: AUTO }
     }
 
     enum class NotificationMetric(val value: String) {
-        POWER("W"), CURRENT("A"), CHARGE("Ah"), TEMPERATURE("°C"), VOLTAGE("V"), ENERGY("Wh"), PERCENT("%");
+        POWER("W"),
+        CURRENT("A"),
+        CHARGE("Ah"),
+        TEMPERATURE("°C"),
+        VOLTAGE("V"),
+        ENERGY("Wh"),
+        PERCENT("%");
         companion object {
             fun fromValue(value: String?): NotificationMetric = entries.firstOrNull { it.value == value } ?: TEMPERATURE
             fun fromValueOrNull(value: String?): NotificationMetric? = entries.firstOrNull { it.value == value }
@@ -133,7 +146,7 @@ class AppSettings(context: Context) {
         const val MAX_UPDATE_INTERVAL_MS = 10_000L
         const val MIN_NOTIFICATION_ICON_SIZE_PERCENT = 0
         const val DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT = 100
-        const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 300
+        const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 100
 
         fun notificationIconSizeKey(metric: NotificationMetric) = "notification_icon_size_${metric.name.lowercase()}"
 
