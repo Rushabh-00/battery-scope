@@ -83,10 +83,7 @@ class BatteryMonitoringService : Service() {
     }
 
     private fun updateNotification(snapshot: BatterySnapshot) {
-        getSystemService(NotificationManager::class.java)?.notify(
-            NOTIFICATION_ID,
-            buildNotification(snapshot),
-        )
+        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildNotification(snapshot))
     }
 
     private fun buildNotification(snapshot: BatterySnapshot?): Notification {
@@ -94,8 +91,7 @@ class BatteryMonitoringService : Service() {
         val currentUnit = settings.currentUnit
         val temperatureUnit = settings.temperatureUnit
         val includeChargeTime = settings.notificationChargeTimeEstimate
-        val entryMetrics = settings.notificationEntries
-            .asSequence()
+        val entryMetrics = settings.notificationEntries.asSequence()
             .filter { it != iconMetric }
             .sortedBy { it.ordinal }
             .toList()
@@ -110,7 +106,6 @@ class BatteryMonitoringService : Service() {
             detailLines.size == 1 -> detailLines.first()
             else -> detailLines.joinToString(" • ")
         }
-
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(snapshot?.let { renderMetricIcon(it, iconMetric, currentUnit, temperatureUnit) } ?: renderPlaceholderIcon(iconMetric, currentUnit, temperatureUnit))
             .setContentTitle("BatteryScope")
@@ -119,81 +114,52 @@ class BatteryMonitoringService : Service() {
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setContentIntent(openIntent)
-            .apply {
-                if (detailLines.size > 1) {
-                    setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n")))
-                }
-            }
+            .apply { if (detailLines.size > 1) setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n"))) }
             .build()
     }
 
-    private fun renderMetricIcon(
-        snapshot: BatterySnapshot,
-        metric: AppSettings.NotificationMetric,
-        currentUnit: AppSettings.CurrentUnit,
-        temperatureUnit: AppSettings.TemperatureUnit,
-    ): Icon {
+    private fun renderMetricIcon(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): Icon {
         val (value, unit) = iconParts(snapshot, metric, currentUnit, temperatureUnit)
-        return renderIcon(value, unit)
+        return renderIcon(value, unit, metric)
     }
 
-    private fun renderPlaceholderIcon(
-        metric: AppSettings.NotificationMetric,
-        currentUnit: AppSettings.CurrentUnit,
-        temperatureUnit: AppSettings.TemperatureUnit,
-    ): Icon = renderIcon("—", iconUnit(metric, currentUnit, temperatureUnit))
+    private fun renderPlaceholderIcon(metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): Icon =
+        renderIcon("—", iconUnit(metric, currentUnit, temperatureUnit), metric)
 
-    private fun renderIcon(value: String, unit: String): Icon {
+    private fun renderIcon(value: String, unit: String, metric: AppSettings.NotificationMetric): Icon {
         val density = resources.displayMetrics.density
         val size = (96f * density).toInt().coerceAtLeast(96)
-        val bitmap = iconBitmap?.takeIf { it.width == size && !it.isRecycled } ?: Bitmap.createBitmap(
-            size,
-            size,
-            Bitmap.Config.ARGB_8888,
-        ).also { iconBitmap = it }
+        val bitmap = iconBitmap?.takeIf { it.width == size && !it.isRecycled } ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
-        val scale = settings.notificationIconSizePercent / 100f
+        val scale = settings.notificationIconSizePercent(metric) / 100f
         val canvas = Canvas(bitmap)
-        val maxWidth = size * 0.82f
+        val maxWidth = size * 0.9f
         val centerX = size / 2f
 
-        iconPaint.textSize = 34f * density * scale
+        iconPaint.textSize = 46f * density * scale
         val measuredValue = iconPaint.measureText(value)
-        if (measuredValue > maxWidth && measuredValue > 0f) {
-            iconPaint.textSize *= maxWidth / measuredValue
-        }
+        if (measuredValue > maxWidth && measuredValue > 0f) iconPaint.textSize *= maxWidth / measuredValue
         canvas.drawText(value, centerX, size * 0.58f, iconPaint)
 
-        iconPaint.textSize = 7.5f * density * scale
+        iconPaint.textSize = 10f * density * scale
         val measuredUnit = iconPaint.measureText(unit)
-        if (measuredUnit > maxWidth && measuredUnit > 0f) {
-            iconPaint.textSize *= maxWidth / measuredUnit
-        }
-        canvas.drawText(unit, centerX, size * 0.78f, iconPaint)
+        if (measuredUnit > maxWidth && measuredUnit > 0f) iconPaint.textSize *= maxWidth / measuredUnit
+        canvas.drawText(unit, centerX, size * 0.77f, iconPaint)
         return Icon.createWithBitmap(bitmap)
     }
 
-    private fun iconParts(
-        snapshot: BatterySnapshot,
-        metric: AppSettings.NotificationMetric,
-        currentUnit: AppSettings.CurrentUnit,
-        temperatureUnit: AppSettings.TemperatureUnit,
-    ): Pair<String, String> = when (metric) {
+    private fun iconParts(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): Pair<String, String> = when (metric) {
         AppSettings.NotificationMetric.POWER -> (snapshot.powerW?.let { f1(it) } ?: "—") to "W"
         AppSettings.NotificationMetric.CURRENT -> (snapshot.currentA?.let { currentValue(it, currentUnit) } ?: "—") to currentUnit.value
         AppSettings.NotificationMetric.CHARGE -> (snapshot.remainingMah?.let { f1(it / 1000.0) } ?: "—") to "Ah"
         AppSettings.NotificationMetric.TEMPERATURE -> (snapshot.temperatureC?.let { temperatureValue(it, temperatureUnit) } ?: "—") to temperatureUnit.value
         AppSettings.NotificationMetric.VOLTAGE -> (snapshot.voltageV?.let { f1(it) } ?: "—") to "V"
         AppSettings.NotificationMetric.ENERGY -> (snapshot.energyWh?.let { f1(it) } ?: "—") to "Wh"
-        AppSettings.NotificationMetric.PERCENT -> (snapshot.levelPercent.toString()) to "%"
+        AppSettings.NotificationMetric.PERCENT -> snapshot.levelPercent.toString() to "%"
     }
 
-    private fun iconUnit(
-        metric: AppSettings.NotificationMetric,
-        currentUnit: AppSettings.CurrentUnit,
-        temperatureUnit: AppSettings.TemperatureUnit,
-    ): String = when (metric) {
+    private fun iconUnit(metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "W"
         AppSettings.NotificationMetric.CURRENT -> currentUnit.value
         AppSettings.NotificationMetric.CHARGE -> "Ah"
@@ -203,16 +169,11 @@ class BatteryMonitoringService : Service() {
         AppSettings.NotificationMetric.PERCENT -> "%"
     }
 
-    private fun formatMetric(
-        snapshot: BatterySnapshot,
-        metric: AppSettings.NotificationMetric,
-        currentUnit: AppSettings.CurrentUnit,
-        temperatureUnit: AppSettings.TemperatureUnit,
-    ): String = when (metric) {
+    private fun formatMetric(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): String = when (metric) {
         AppSettings.NotificationMetric.POWER -> "Power ${snapshot.powerW?.let { "${f1(it)} W" } ?: "—"}"
         AppSettings.NotificationMetric.CURRENT -> "Current ${snapshot.currentA?.let { currentText(it, currentUnit) } ?: "—"}"
         AppSettings.NotificationMetric.CHARGE -> "Charge ${snapshot.remainingMah?.let { "${f2(it / 1000.0)} Ah" } ?: "—"}"
-        AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let { "${temperatureText(it, temperatureUnit)}" } ?: "—"}"
+        AppSettings.NotificationMetric.TEMPERATURE -> "Temperature ${snapshot.temperatureC?.let { temperatureText(it, temperatureUnit) } ?: "—"}"
         AppSettings.NotificationMetric.VOLTAGE -> "Voltage ${snapshot.voltageV?.let { "${f1(it)} V" } ?: "—"}"
         AppSettings.NotificationMetric.ENERGY -> "Energy ${snapshot.energyWh?.let { "${f1(it)} Wh" } ?: "—"}"
         AppSettings.NotificationMetric.PERCENT -> "Charge level ${snapshot.levelPercent}%"
@@ -236,34 +197,24 @@ class BatteryMonitoringService : Service() {
         AppSettings.CurrentUnit.AMPERE -> f1(value)
         AppSettings.CurrentUnit.MILLIAMPERE -> f0(value * 1000.0)
     }
-
-    private fun currentText(value: Double, unit: AppSettings.CurrentUnit): String = "${currentValue(value, unit)} ${unit.value}"
-
+    private fun currentText(value: Double, unit: AppSettings.CurrentUnit) = "${currentValue(value, unit)} ${unit.value}"
     private fun temperatureValue(valueC: Double, unit: AppSettings.TemperatureUnit): String = when (unit) {
         AppSettings.TemperatureUnit.CELSIUS -> f1(valueC)
         AppSettings.TemperatureUnit.FAHRENHEIT -> f1(valueC * 9.0 / 5.0 + 32.0)
     }
-
-    private fun temperatureText(valueC: Double, unit: AppSettings.TemperatureUnit): String = "${temperatureValue(valueC, unit)} ${unit.value}"
+    private fun temperatureText(valueC: Double, unit: AppSettings.TemperatureUnit) = "${temperatureValue(valueC, unit)} ${unit.value}"
 
     private fun startForegroundCompat(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        else startForeground(NOTIFICATION_ID, notification)
     }
 
     private fun createNotificationChannel() {
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Ongoing status for optional battery notifications"
-                    setShowBadge(false)
-                },
-            )
-        }
+        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "Ongoing status for optional battery notifications"
+            setShowBadge(false)
+        })
     }
 
     override fun onDestroy() {
