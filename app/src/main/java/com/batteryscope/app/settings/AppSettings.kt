@@ -61,6 +61,14 @@ class AppSettings(context: Context) {
         get() = NotificationMetric.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, NotificationMetric.TEMPERATURE.value))
         set(value) = preferences.edit().putString(KEY_NOTIFICATION_ICON, value.value).apply()
 
+    var notificationIconSizePercent: Int
+        get() = preferences.getInt(KEY_NOTIFICATION_ICON_SIZE_PERCENT, DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT)
+            .coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT)
+        set(value) = preferences.edit().putInt(
+            KEY_NOTIFICATION_ICON_SIZE_PERCENT,
+            value.coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT),
+        ).apply()
+
     var notificationEntries: Set<NotificationMetric>
         get() = preferences.getStringSet(KEY_NOTIFICATION_ENTRIES, DEFAULT_NOTIFICATION_ENTRIES.map { it.value }.toSet())
             .orEmpty()
@@ -122,12 +130,16 @@ class AppSettings(context: Context) {
         const val KEY_START_ON_BOOT = "start_on_boot"
         const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
         const val KEY_NOTIFICATION_ICON = "notification_icon"
+        const val KEY_NOTIFICATION_ICON_SIZE_PERCENT = "notification_icon_size_percent"
         const val KEY_NOTIFICATION_ENTRIES = "notification_entries"
         const val KEY_NOTIFICATION_CHARGE_TIME = "notification_charge_time"
         const val KEY_AUTOMATIC_UPDATE_CHECK = "automatic_update_check"
         const val MIN_UPDATE_INTERVAL_MS = 1_250L
         const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
         const val MAX_UPDATE_INTERVAL_MS = 10_000L
+        const val MIN_NOTIFICATION_ICON_SIZE_PERCENT = 70
+        const val DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT = 100
+        const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 140
 
         val DEFAULT_NOTIFICATION_ENTRIES = setOf(
             NotificationMetric.POWER,
