@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -45,6 +44,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.batteryscope.app.BuildConfig
 import com.batteryscope.app.monitor.BatteryMonitoringController
 import com.batteryscope.app.settings.AppSettings
@@ -281,7 +281,7 @@ private fun NotificationIconPreview(metric: AppSettings.NotificationMetric, size
                 Text(
                     value,
                     style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * sizePercent / 100f).dp,
+                        fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * sizePercent / 100f).sp,
                     ),
                     fontWeight = FontWeight.Bold,
                 )
