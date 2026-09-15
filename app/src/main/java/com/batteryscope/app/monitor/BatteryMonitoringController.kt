@@ -3,6 +3,7 @@ package com.batteryscope.app.monitor
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.batteryscope.app.settings.AppSettings
 
 object BatteryMonitoringController {
     fun start(context: Context) {
@@ -12,9 +13,9 @@ object BatteryMonitoringController {
     }
 
     fun refresh(context: Context) {
-        if (!AppSettingsEnabled(context)) return
+        if (!AppSettings(context).notificationEnabled) return
         val appContext = context.applicationContext
-        val intent = Intent(appContext, BatteryMonitoringService::class.java)
+        val intent = Intent(appContext, BatteryMonitoringService::class.java).setAction(ACTION_REFRESH)
         if (Build.VERSION.SDK_INT >= 26) appContext.startForegroundService(intent) else appContext.startService(intent)
     }
 
@@ -22,6 +23,5 @@ object BatteryMonitoringController {
         context.applicationContext.stopService(Intent(context.applicationContext, BatteryMonitoringService::class.java))
     }
 
-    private fun AppSettingsEnabled(context: Context): Boolean =
-        com.batteryscope.app.settings.AppSettings(context).notificationEnabled
+    internal const val ACTION_REFRESH = "com.batteryscope.app.monitor.REFRESH_NOTIFICATION"
 }
