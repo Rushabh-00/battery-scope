@@ -12,6 +12,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -27,12 +29,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -65,7 +67,6 @@ fun NotificationSettingsSection(settings: AppSettings) {
     val context = LocalContext.current
     val activity = context as? Activity
     val metrics = AppSettings.NotificationMetric.entries
-
     var enabled by remember { mutableStateOf(settings.notificationEnabled) }
     var selectedMetric by remember { mutableStateOf(settings.notificationIcon) }
     var entries by remember { mutableStateOf(settings.notificationEntries - selectedMetric) }
@@ -80,16 +81,10 @@ fun NotificationSettingsSection(settings: AppSettings) {
     }
 
     LaunchedEffect(automaticUpdateCheck) {
-        automaticUpdateMessage = if (!automaticUpdateCheck) {
-            ""
-        } else {
-            val result = runCatching { GitHubUpdateManager.checkLatest(BuildConfig.VERSION_NAME) }
-            result.fold(
-                onSuccess = { release ->
-                    release?.let { "Update available: ${it.versionName}. Use App update below to install it." }
-                        ?: "You're up to date."
-                },
-                onFailure = { "Automatic check failed. You can still check manually below." },
+        automaticUpdateMessage = if (!automaticUpdateCheck) "" else {
+            runCatching { GitHubUpdateManager.checkLatest(BuildConfig.VERSION_NAME) }.fold(
+                onSuccess = { release -> release?.let { "Update available: ${it.versionName}." } ?: "You're up to date." },
+                onFailure = { "Automatic check failed. Manual update check is still available." },
             )
         }
     }
@@ -100,58 +95,56 @@ fun NotificationSettingsSection(settings: AppSettings) {
         modifier = Modifier.animateContentSize(),
     ) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            SettingsSectionHeader(
-                title = "Notifications",
-                body = if (enabled) {
-                    "Live battery status is active outside BatteryScope."
-                } else {
-                    "Turn this on to keep battery monitoring available in the status bar."
-                },
-                trailing = {
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { value ->
-                            enabled = value
-                            settings.notificationEnabled = value
-                            if (value) {
-                                if (Build.VERSION.SDK_INT >= 33 &&
-                                    activity != null &&
-                                    activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4001)
-                                } else {
-                                    BatteryMonitoringController.start(context)
-                                }
-                            } else {
-                                BatteryMonitoringController.stop(context)
-                            }
-                        },
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Notifications", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (enabled) "Live status is active in the status bar and notification shade." else "Turn this on for optional background battery monitoring.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                },
-            )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { value ->
+                        enabled = value
+                        settings.notificationEnabled = value
+                        if (value) {
+                            if (Build.VERSION.SDK_INT >= 33 && activity != null && activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4001)
+                            } else BatteryMonitoringController.start(context)
+                        } else BatteryMonitoringController.stop(context)
+                    },
+                )
+            }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
             HorizontalDivider()
             Spacer(Modifier.height(18.dp))
 
-            SettingsGroup("Status bar icon", "Pick one metric. Only that metric's size control appears below.") {
+            GroupCard("Status bar icon", "Choose one metric. Only that metric gets a size control.") {
                 AnimatedContent(
                     targetState = selectedMetric,
                     transitionSpec = {
-                        (fadeIn() + slideInVertically { it / 4 }) togetherWith
-                            (fadeOut() + slideOutVertically { -it / 4 })
+                        (fadeIn() + scaleIn(initialScale = 0.96f) + slideInVertically { it / 5 }) togetherWith
+                            (fadeOut() + scaleOut(targetScale = 1.02f) + slideOutVertically { -it / 5 })
                     },
-                    label = "selectedMetric",
+                    label = "selectedNotificationMetric",
                 ) { metric ->
-                    Column {
-                        MetricLabel(metric)
-                        Spacer(Modifier.height(10.dp))
+                    Column(Modifier.animateContentSize()) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text("Selected", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(metric.value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            }
+                            Box(Modifier.size(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                        }
+                        Spacer(Modifier.height(12.dp))
                         NotificationIconPreview(metric, iconSizes[metric] ?: 100)
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(12.dp))
                         IconSizeControl(
-                            metric = metric,
                             value = iconSizes[metric] ?: 100,
-                            onValueChange = { value -> iconSizes[metric] = value },
+                            onValueChange = { iconSizes[metric] = it },
                             onValueFinished = {
                                 settings.setNotificationIconSizePercent(metric, iconSizes[metric] ?: 100)
                                 BatteryMonitoringController.refresh(context)
@@ -160,104 +153,65 @@ fun NotificationSettingsSection(settings: AppSettings) {
                     }
                 }
 
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    "Choose notification icon",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Spacer(Modifier.height(16.dp))
+                Text("Notification icon", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                NotificationMetricGrid(
-                    metrics = metrics,
-                    selected = selectedMetric,
-                    checked = { it == selectedMetric },
-                    disabled = emptySet(),
-                    onSelected = { metric ->
-                        selectedMetric = metric
-                        entries = entries - metric
-                        settings.notificationIcon = metric
-                        settings.notificationEntries = entries
-                        BatteryMonitoringController.refresh(context)
-                    },
-                )
+                NotificationMetricGrid(metrics, selectedMetric, emptySet()) { metric ->
+                    selectedMetric = metric
+                    entries = entries - metric
+                    settings.notificationIcon = metric
+                    settings.notificationEntries = entries
+                    BatteryMonitoringController.refresh(context)
+                }
             }
 
-            Spacer(Modifier.height(18.dp))
-            SettingsGroup("Notification details", "Keep extra values in the expanded notification.") {
-                Text("Extra metrics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                NotificationMetricGrid(
-                    metrics = metrics,
-                    selected = selectedMetric,
-                    checked = { it in entries },
-                    disabled = setOf(selectedMetric),
-                    onSelected = { metric ->
-                        entries = if (metric in entries) entries - metric else entries + metric
-                        settings.notificationEntries = entries
-                        BatteryMonitoringController.refresh(context)
-                    },
-                )
+            Spacer(Modifier.height(16.dp))
+            GroupCard("Notification details", "Extra metrics are shown in the expanded notification.") {
+                NotificationMetricGrid(metrics, selectedMetric, setOf(selectedMetric), checked = { it in entries }) { metric ->
+                    entries = if (metric in entries) entries - metric else entries + metric
+                    settings.notificationEntries = entries
+                    BatteryMonitoringController.refresh(context)
+                }
                 Spacer(Modifier.height(14.dp))
-                SettingToggle(
-                    "Charge time estimate",
-                    "Show estimated time remaining while charging.",
-                    chargeTime,
-                ) {
+                SettingToggle("Charge time estimate", "Show an estimate only while charging and only when reliable.", chargeTime) {
                     chargeTime = it
                     settings.notificationChargeTimeEstimate = it
                     BatteryMonitoringController.refresh(context)
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
-            SettingsGroup("Background reliability", "Reduce the chance that Android pauses monitoring.") {
+            Spacer(Modifier.height(16.dp))
+            GroupCard("Background reliability", "Reduce the chance that Android or an OEM pauses monitoring.") {
                 InfoPill("Sampling interval", formatInterval(settings.updateIntervalMs))
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(
-                    onClick = {
-                        context.startActivity(
-                            Intent(
-                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.parse("package:${context.packageName}"),
-                            ),
-                        )
-                    },
+                    onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) },
                     Modifier.fillMaxWidth(),
-                ) { Text("Open battery & background settings") }
+                ) { Text("Open app battery settings") }
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
                         requestBatteryOptimization(context)
                         optimizationIgnored = isIgnoringBatteryOptimizations(context)
                     },
-                    Modifier.fillMaxWidth(),
                     enabled = !optimizationIgnored,
-                ) {
-                    Text(if (optimizationIgnored) "Battery optimization is already relaxed" else "Allow unrestricted battery use")
-                }
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (optimizationIgnored) "Battery optimization relaxed" else "Allow unrestricted battery use") }
                 Text(
-                    "Some devices also have an OEM Auto-start switch. Enable it when your phone stops background monitoring.",
+                    "On some phones also enable Auto-start when background monitoring is stopped by the device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
 
-            Spacer(Modifier.height(18.dp))
-            SettingsGroup("Update checks", "Automatic checks are optional and off by default.") {
-                SettingToggle(
-                    "Automatic update check",
-                    "Checks GitHub when Settings opens.",
-                    automaticUpdateCheck,
-                ) {
+            Spacer(Modifier.height(16.dp))
+            GroupCard("Update checks", "Optional GitHub update checks. Installation always requires your action.") {
+                SettingToggle("Automatic update check", "Check when Settings opens.", automaticUpdateCheck) {
                     automaticUpdateCheck = it
                     settings.automaticUpdateCheck = it
                 }
-                AnimatedVisibility(
-                    visible = automaticUpdateMessage.isNotEmpty(),
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                ) {
+                AnimatedVisibility(automaticUpdateMessage.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                     Text(
                         automaticUpdateMessage,
                         style = MaterialTheme.typography.bodySmall,
@@ -271,26 +225,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
 }
 
 @Composable
-private fun SettingsSectionHeader(
-    title: String,
-    body: String,
-    trailing: @Composable () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        trailing()
-    }
-}
-
-@Composable
-private fun SettingsGroup(title: String, body: String, content: @Composable () -> Unit) {
+private fun GroupCard(title: String, body: String, content: @Composable () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceContainerLow),
         shape = RoundedCornerShape(22.dp),
@@ -306,68 +241,27 @@ private fun SettingsGroup(title: String, body: String, content: @Composable () -
 }
 
 @Composable
-private fun MetricLabel(metric: AppSettings.NotificationMetric) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column {
-            Text("Selected icon", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(metric.value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        }
-        Box(
-            Modifier
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .padding(horizontal = 12.dp, vertical = 7.dp),
-        ) {
-            Text("LIVE", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-private fun IconSizeControl(
-    metric: AppSettings.NotificationMetric,
-    value: Int,
-    onValueChange: (Int) -> Unit,
-    onValueFinished: () -> Unit,
-) {
-    val sliderValue = value / 3f
-    Card(
-        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.secondaryContainer),
-        shape = RoundedCornerShape(18.dp),
-    ) {
+private fun IconSizeControl(value: Int, onValueChange: (Int) -> Unit, onValueFinished: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.secondaryContainer), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
                     Text("Icon size", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Control 0–100 • actual icon scale 0–300%",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text("Fixed 0–100% scale. No 300% multiplier.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text("$value%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
             Slider(
-                value = sliderValue,
-                onValueChange = { raw ->
-                    onValueChange((raw * 3f).toInt().coerceIn(0, 300))
-                },
+                value = value.toFloat(),
+                onValueChange = { onValueChange(it.toInt().coerceIn(0, 100)) },
                 onValueChangeFinished = onValueFinished,
                 valueRange = 0f..100f,
                 steps = 99,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("0%", style = MaterialTheme.typography.labelSmall)
-                Text("100 control", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("300%", style = MaterialTheme.typography.labelSmall)
+                Text("0", style = MaterialTheme.typography.labelSmall)
+                Text("50", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("100", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -375,52 +269,48 @@ private fun IconSizeControl(
 
 @Composable
 private fun NotificationIconPreview(metric: AppSettings.NotificationMetric, sizePercent: Int) {
-    val (value, unit) = when (metric) {
-        AppSettings.NotificationMetric.POWER -> "12.4" to "W"
-        AppSettings.NotificationMetric.CURRENT -> "1.8" to "A"
-        AppSettings.NotificationMetric.CHARGE -> "3.9" to "Ah"
-        AppSettings.NotificationMetric.TEMPERATURE -> "36.6" to "°C"
-        AppSettings.NotificationMetric.VOLTAGE -> "4.2" to "V"
-        AppSettings.NotificationMetric.ENERGY -> "16.8" to "Wh"
-        AppSettings.NotificationMetric.PERCENT -> "45" to "%"
-    }
+    val (value, unit) = notificationPreviewValue(metric)
     val scale = sizePercent / 100f
-    Card(
-        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(18.dp),
-    ) {
+    Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text("Live preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                    Text("${metric.value} • $sizePercent%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Box(
-                    Modifier
-                        .size(76.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color.Black)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (sizePercent > 0) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(value, color = Color.White, fontSize = (18f * scale).coerceAtLeast(1f).sp, fontWeight = FontWeight.Bold)
-                            Text(unit, color = Color.White, fontSize = (8f * scale).coerceAtLeast(1f).sp, fontWeight = FontWeight.Bold)
-                        }
+            Text("Status-bar preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(11.dp)).background(Color.Black)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("9:41", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(value, color = Color.White, fontSize = (10f * scale).coerceAtLeast(1f).sp, fontWeight = FontWeight.Bold)
+                        Text(unit, color = Color.White, fontSize = (5f * scale).coerceAtLeast(1f).sp, fontWeight = FontWeight.Bold)
                     }
+                    Spacer(Modifier.weight(1f))
+                    Text("5G • 87%", color = Color.White, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
     }
 }
 
+private fun notificationPreviewValue(metric: AppSettings.NotificationMetric): Pair<String, String> = when (metric) {
+    AppSettings.NotificationMetric.PERCENT -> "85.0" to "%"
+    AppSettings.NotificationMetric.POWER -> "12" to "W"
+    AppSettings.NotificationMetric.CURRENT -> "3.2" to "A"
+    AppSettings.NotificationMetric.CHARGE -> "04" to "Ah"
+    AppSettings.NotificationMetric.TEMPERATURE -> "36" to "°C"
+    AppSettings.NotificationMetric.VOLTAGE -> "04" to "V"
+    AppSettings.NotificationMetric.ENERGY -> "16" to "Wh"
+}
+
 @Composable
 private fun NotificationMetricGrid(
     metrics: List<AppSettings.NotificationMetric>,
     selected: AppSettings.NotificationMetric,
-    checked: (AppSettings.NotificationMetric) -> Boolean,
     disabled: Set<AppSettings.NotificationMetric>,
+    checked: (AppSettings.NotificationMetric) -> Boolean = { it == selected },
     onSelected: (AppSettings.NotificationMetric) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -430,37 +320,13 @@ private fun NotificationMetricGrid(
                     val active = checked(metric)
                     val locked = metric in disabled
                     Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(
-                                when {
-                                    active -> MaterialTheme.colorScheme.primaryContainer
-                                    locked -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                                    else -> Color.Transparent
-                                },
-                            )
-                            .border(
-                                1.dp,
-                                if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                RoundedCornerShape(14.dp),
-                            )
-                            .then(
-                                if (!locked) {
-                                    Modifier.selectable(
-                                        selected = active,
-                                        onClick = { onSelected(metric) },
-                                        role = Role.RadioButton,
-                                    )
-                                } else {
-                                    Modifier
-                                },
-                            )
+                        Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                            .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            .border(1.dp, if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                            .then(if (!locked) Modifier.selectable(selected = active, onClick = { onSelected(metric) }, role = Role.RadioButton) else Modifier)
                             .padding(vertical = 11.dp),
                         contentAlignment = Alignment.Center,
-                    ) {
-                        Text(metric.value, fontWeight = if (active) FontWeight.Bold else FontWeight.Medium)
-                    }
+                    ) { Text(metric.value, fontWeight = if (active) FontWeight.Bold else FontWeight.Medium) }
                 }
                 repeat(4 - rowMetrics.size) { Spacer(Modifier.weight(1f)) }
             }
@@ -482,11 +348,7 @@ private fun SettingToggle(title: String, body: String, checked: Boolean, onCheck
 @Composable
 private fun InfoPill(label: String, value: String) {
     Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(label, fontWeight = FontWeight.SemiBold)
@@ -496,12 +358,7 @@ private fun InfoPill(label: String, value: String) {
 
 private fun requestBatteryOptimization(context: android.content.Context) {
     runCatching {
-        context.startActivity(
-            Intent(
-                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                Uri.parse("package:${context.packageName}"),
-            ),
-        )
+        context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")))
     }.recoverCatching {
         context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
     }
