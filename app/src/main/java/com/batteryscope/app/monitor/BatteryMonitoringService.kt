@@ -128,28 +128,34 @@ class BatteryMonitoringService : Service() {
 
     private fun renderIcon(value: String, unit: String, metric: AppSettings.NotificationMetric): Icon {
         val density = resources.displayMetrics.density
-        val size = (96f * density).toInt().coerceAtLeast(96)
-        val bitmap = iconBitmap?.takeIf { it.width == size && !it.isRecycled } ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
+        // Render at the actual small-icon scale so Android does not shrink a large canvas
+        // containing lots of transparent margins into a tiny status-bar glyph.
+        val size = (24f * density).toInt().coerceAtLeast(24)
+        val bitmap = iconBitmap?.takeIf { it.width == size && it.height == size && !it.isRecycled }
+            ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
         // UI slider stores 0–100; it controls a 0–300% visual size range.
         val progress = settings.notificationIconSizePercent(metric).coerceIn(0, 100)
+        if (progress <= 0) return Icon.createWithBitmap(bitmap)
         val scale = progress * 3f / 100f
-        if (scale <= 0f) return Icon.createWithBitmap(bitmap)
-
         val canvas = Canvas(bitmap)
-        val maxWidth = size * 0.9f
+        val maxWidth = size * 0.98f
         val centerX = size / 2f
 
-        iconPaint.textSize = 46f * density * scale
+        iconPaint.textSize = 14f * density * scale
         val measuredValue = iconPaint.measureText(value)
-        if (measuredValue > maxWidth && measuredValue > 0f) iconPaint.textSize *= maxWidth / measuredValue
-        canvas.drawText(value, centerX, size * 0.58f, iconPaint)
+        if (measuredValue > maxWidth && measuredValue > 0f) {
+            iconPaint.textSize *= maxWidth / measuredValue
+        }
+        canvas.drawText(value, centerX, size * 0.61f, iconPaint)
 
-        iconPaint.textSize = 10f * density * scale
+        iconPaint.textSize = 5.5f * density * scale
         val measuredUnit = iconPaint.measureText(unit)
-        if (measuredUnit > maxWidth && measuredUnit > 0f) iconPaint.textSize *= maxWidth / measuredUnit
-        canvas.drawText(unit, centerX, size * 0.77f, iconPaint)
+        if (measuredUnit > maxWidth && measuredUnit > 0f) {
+            iconPaint.textSize *= maxWidth / measuredUnit
+        }
+        canvas.drawText(unit, centerX, size * 0.88f, iconPaint)
         return Icon.createWithBitmap(bitmap)
     }
 
