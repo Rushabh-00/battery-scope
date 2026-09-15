@@ -58,6 +58,7 @@ class AppSettings(context: Context) {
         get() = NotificationMetric.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, NotificationMetric.TEMPERATURE.value))
         set(value) = preferences.edit().putString(KEY_NOTIFICATION_ICON, value.value).apply()
 
+    /** Legacy/global value kept for compatibility with older builds. */
     var notificationIconSizePercent: Int
         get() = preferences.getInt(KEY_NOTIFICATION_ICON_SIZE_PERCENT, DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT)
             .coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT)
@@ -132,7 +133,7 @@ class AppSettings(context: Context) {
         const val MAX_UPDATE_INTERVAL_MS = 10_000L
         const val MIN_NOTIFICATION_ICON_SIZE_PERCENT = 0
         const val DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT = 100
-        const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 100
+        const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 300
 
         fun notificationIconSizeKey(metric: NotificationMetric) = "notification_icon_size_${metric.name.lowercase()}"
 
