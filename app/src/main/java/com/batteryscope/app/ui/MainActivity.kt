@@ -2,6 +2,7 @@ package com.batteryscope.app.ui
 
 import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -51,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -81,7 +83,7 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val ui = remember(context) { UiPreferences(context) }
             val settings = remember(context) { AppSettings(context) }
-            var screen by rememberSaveable { mutableStateOf(AppScreen.LIVE) }
+            var screen by rememberSaveable { mutableStateOf("live") }
             var theme by remember { mutableStateOf(ui.theme) }
             var colorMode by remember { mutableStateOf(ui.colorMode) }
             var accent by remember { mutableStateOf(ui.accentColorArgb) }
@@ -89,19 +91,19 @@ class MainActivity : ComponentActivity() {
 
             BatteryScopeTheme(theme, colorMode, accent, colorStyle) {
                 when (screen) {
-                    AppScreen.LIVE -> LiveScreen(settings) { screen = AppScreen.SETTINGS }
-                    AppScreen.SETTINGS -> SettingsScreen(
-                        theme,
-                        colorMode,
-                        accent,
-                        colorStyle,
-                        settings,
+                    "settings" -> SettingsScreen(
+                        theme = theme,
+                        colorMode = colorMode,
+                        accent = accent,
+                        colorStyle = colorStyle,
+                        settings = settings,
                         onTheme = { theme = it; ui.theme = it },
                         onColorMode = { colorMode = it; ui.colorMode = it },
                         onAccent = { accent = it; ui.accentColorArgb = it },
                         onColorStyle = { colorStyle = it; ui.colorStyle = it },
-                        onBack = { screen = AppScreen.LIVE },
+                        onBack = { screen = "live" },
                     )
+                    else -> LiveScreen(settings) { screen = "settings" }
                 }
             }
         }
@@ -111,10 +113,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         val settings = AppSettings(this)
         if (!settings.notificationEnabled) return
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
             if (!settings.notificationPermissionRequested) {
                 settings.notificationPermissionRequested = true
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4001)
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
             }
         } else {
             BatteryMonitoringController.start(this)
@@ -123,13 +127,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 4001 && grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED && AppSettings(this).notificationEnabled) {
+        if (requestCode == REQUEST_NOTIFICATIONS &&
+            grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED &&
+            AppSettings(this).notificationEnabled
+        ) {
             BatteryMonitoringController.start(this)
         }
     }
-}
 
-private enum class AppScreen { LIVE, SETTINGS }
+    private companion object {
+        const val REQUEST_NOTIFICATIONS = 4001
+    }
+}
 
 @Composable
 private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
@@ -161,17 +170,30 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
 
     Scaffold { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = MaterialTheme.colorScheme.background) {
-            LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(18.dp)) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(18.dp),
+            ) {
                 item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Column(Modifier.weight(1f).padding(end = 12.dp)) {
                             Text("BatteryScope", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                            Text(if (battery?.charging == true) "Live telemetry • charging" else "Live telemetry • on battery", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                if (battery?.charging == true) "Live telemetry • charging" else "Live telemetry • on battery",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         OutlinedButton(onClick = openSettings) { Text("Settings") }
                     }
                 }
-                if (readError && battery == null) item { InfoCard("Battery data unavailable", "BatteryScope will retry automatically.") }
+                if (readError && battery == null) {
+                    item { InfoCard("Battery data unavailable", "BatteryScope will retry automatically.") }
+                }
                 battery?.let { value ->
                     item { HeroCard(value, settings) }
                     item { LiveMeta(value, lastUpdatedAt, interval, readError, notifications) }
@@ -179,7 +201,8 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
                         item { HealthCard(value, analysis) }
                         item { HistoryCard(analysis) }
                     }
-                } ?: if (!readError) {
+                }
+                if (battery == null && !readError) {
                     item { InfoCard("Reading battery telemetry…", "The first sample will appear here.") }
                 }
             }
@@ -188,7 +211,10 @@ private fun LiveScreen(settings: AppSettings, openSettings: () -> Unit) {
 }
 
 @Composable
-private fun HeroCard(battery: BatterySnapshot, settings: AppSettings) = Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) {
+private fun HeroCard(battery: BatterySnapshot, settings: AppSettings) = Card(
+    shape = RoundedCornerShape(28.dp),
+    colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer),
+) {
     Column(Modifier.fillMaxWidth().padding(22.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
@@ -223,15 +249,31 @@ private fun MiniStat(label: String, value: String) = Column {
 }
 
 @Composable
-private fun LiveMeta(battery: BatterySnapshot, lastUpdatedAt: Long, interval: Long, readError: Boolean, notifications: Boolean) {
+private fun LiveMeta(
+    battery: BatterySnapshot,
+    lastUpdatedAt: Long,
+    interval: Long,
+    readError: Boolean,
+    notifications: Boolean,
+) {
     val age = ((System.currentTimeMillis() - lastUpdatedAt) / 1000L).coerceAtLeast(0L)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(
-            when { readError -> "Last good telemetry retained"; notifications -> "Shared notification telemetry"; age == 0L -> "Updated just now"; age == 1L -> "Updated 1 second ago"; else -> "Updated ${age}s ago" },
+            when {
+                readError -> "Last good telemetry retained"
+                notifications -> "Shared notification telemetry"
+                age == 0L -> "Updated just now"
+                age == 1L -> "Updated 1 second ago"
+                else -> "Updated ${age}s ago"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(if (battery.charging) "Charging • ${formatInterval(interval)}" else "Every ${formatInterval(interval)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (battery.charging) "Charging • ${formatInterval(interval)}" else "Every ${formatInterval(interval)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -298,7 +340,6 @@ private fun SettingsScreen(
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
-    val activity = context as? Activity
     val capacityPreferences = remember(context) { CapacityPreferences(context) }
     val updateScope = rememberCoroutineScope()
     var currentUnit by remember { mutableStateOf(settings.currentUnit) }
@@ -322,12 +363,22 @@ private fun SettingsScreen(
                     }
                 }
                 item { NotificationSettingsSection(settings) }
-                item { SettingsCard("Start on boot") { SettingRow("Start on boot", "Start notification monitoring after boot or app update.", boot) { boot = it; settings.startOnBoot = it } } }
+                item {
+                    SettingsCard("Start on boot") {
+                        SettingRow("Start on boot", "Start notification monitoring after boot or app update.", boot) { boot = it; settings.startOnBoot = it }
+                    }
+                }
                 item {
                     SettingsCard("Telemetry") {
                         Text("Sampling interval", fontWeight = FontWeight.SemiBold)
                         Text(formatInterval(interval), style = MaterialTheme.typography.titleLarge)
-                        Slider(value = interval.toFloat(), onValueChange = { interval = ((it / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) }, onValueChangeFinished = { settings.updateIntervalMs = interval }, valueRange = 1_250f..10_000f, steps = 34)
+                        Slider(
+                            value = interval.toFloat(),
+                            onValueChange = { interval = ((it / 250f).roundToInt() * 250L).coerceIn(1_250L, 10_000L) },
+                            onValueChangeFinished = { settings.updateIntervalMs = interval },
+                            valueRange = 1_250f..10_000f,
+                            steps = 34,
+                        )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("1.25 s"); Text("10 s") }
                         Spacer(Modifier.height(10.dp))
                         SettingRow("Invert charging polarity", "Change current sign live.", invert) { invert = it; settings.invertChargingPolarity = it }
@@ -377,7 +428,10 @@ private fun SettingsScreen(
                                     updateMessage = "Checking GitHub…"
                                     updateScope.launch {
                                         runCatching { GitHubUpdateManager.checkLatest(BuildConfig.VERSION_NAME) }
-                                            .onSuccess { found -> release = found; updateMessage = found?.let { "Version ${it.versionName} is available." } ?: "You're up to date." }
+                                            .onSuccess { found ->
+                                                release = found
+                                                updateMessage = found?.let { "Version ${it.versionName} is available." } ?: "You're up to date."
+                                            }
                                             .onFailure { updateMessage = it.message ?: "Update check failed." }
                                         checking = false
                                     }
@@ -391,9 +445,16 @@ private fun SettingsScreen(
                                         updateMessage = "Downloading ${found.versionName}…"
                                         updateScope.launch {
                                             runCatching {
-                                                GitHubUpdateManager.downloadAndInstall(context, found) { downloaded, total -> progress = if (total > 0) ((downloaded * 100L) / total).toInt().coerceIn(0, 100) else -1 }
-                                            }.onSuccess { progress = 100; updateMessage = "Installer opened. Confirm the update." }
-                                                .onFailure { progress = -1; updateMessage = it.message ?: "Update installation failed." }
+                                                GitHubUpdateManager.downloadAndInstall(context, found) { downloaded, total ->
+                                                    progress = if (total > 0) ((downloaded * 100L) / total).toInt().coerceIn(0, 100) else -1
+                                                }
+                                            }.onSuccess {
+                                                progress = 100
+                                                updateMessage = "Installer opened. Confirm the update."
+                                            }.onFailure {
+                                                progress = -1
+                                                updateMessage = it.message ?: "Update installation failed."
+                                            }
                                         }
                                     },
                                 ) { Text("Download & install") }
@@ -411,21 +472,16 @@ private fun SettingsScreen(
                         }
                     }
                 }
-                if (Build.VERSION.SDK_INT >= 33 && activity != null) {
-                    item {
-                        SettingsCard("Notifications permission") {
-                            val granted = activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                            SettingRow("System permission", if (granted) "Allowed" else "Not allowed", granted) { if (!it) activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4001) }
-                        }
-                    }
-                }
             }
         }
     }
 }
 
 @Composable
-private fun SettingsCard(title: String, content: @Composable () -> Unit) = Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceContainer)) {
+private fun SettingsCard(title: String, content: @Composable () -> Unit) = Card(
+    shape = RoundedCornerShape(24.dp),
+    colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceContainer),
+) {
     Column(Modifier.fillMaxWidth().padding(18.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
@@ -451,7 +507,8 @@ private fun ChoiceButtons(title: String, options: List<String>, selected: String
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { option ->
             Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                Modifier.weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(if (option == selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                     .border(1.dp, if (option == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center,
@@ -467,15 +524,25 @@ private fun AccentPalette(accent: Long, onAccent: (Long) -> Unit) {
     val colors = listOf(0xFFFF6F91, 0xFFFF8A65, 0xFFFFC857, 0xFF66BB6A, 0xFF29B6F6, 0xFF7E57C2, 0xFFEC407A, 0xFF26A69A)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         colors.forEach { color ->
-            val selected = accent == (0xFF000000L or color)
-            Box(Modifier.size(32.dp).clip(CircleShape).background(Color(color)).border(2.dp, if (selected) Color.White else Color.Transparent, CircleShape)) {
-                TextButton(onClick = { onAccent(0xFF000000L or color) }, modifier = Modifier.fillMaxSize()) { Text("") }
+            Box(
+                Modifier.size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color(color))
+                    .border(2.dp, if (accent == (0xFF000000L or color)) Color.White else Color.Transparent, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                TextButton(onClick = { onAccent(0xFF000000L or color) }) { Text("") }
             }
         }
     }
 }
 
-private fun formatInterval(ms: Long) = if (ms == 1_250L) "1.25 s" else if (ms % 1000L == 0L) "${ms / 1000}s" else String.format(Locale.US, "%.2f s", ms / 1000.0)
+private fun formatInterval(ms: Long) = when {
+    ms == 1_250L -> "1.25 s"
+    ms % 1000L == 0L -> "${ms / 1000}s"
+    else -> String.format(Locale.US, "%.2f s", ms / 1000.0)
+}
+
 private fun f0(value: Double) = String.format(Locale.US, "%.0f", value)
 private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
 private fun f2(value: Double) = String.format(Locale.US, "%.2f", value)
