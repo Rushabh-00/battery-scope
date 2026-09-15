@@ -137,12 +137,14 @@ object GitHubUpdateManager {
         }
 
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
-        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            data = uri
-            type = "application/vnd.android.package-archive"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        if (context.packageManager.resolveActivity(intent, 0) == null) {
+            error("No Android package installer is available")
         }
         context.startActivity(intent)
     }
