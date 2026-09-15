@@ -7,7 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
+import androidx.activity.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -406,6 +406,7 @@ private fun SettingsScreen(
     var checkingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<GithubUpdateManager.Release?>(null) }
     var updateMessage by remember { mutableStateOf("") }
+    var downloadProgress by remember { mutableStateOf(-1) }
 
     Scaffold { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = MaterialTheme.colorScheme.background) {
@@ -500,6 +501,7 @@ private fun SettingsScreen(
                                 onClick = {
                                     checkingUpdate = true
                                     availableUpdate = null
+                                    downloadProgress = -1
                                     updateMessage = "Checking GitHub…"
                                     updateScope.launch {
                                         val result = runCatching {
@@ -508,29 +510,52 @@ private fun SettingsScreen(
                                         result.onSuccess { release ->
                                             availableUpdate = release
                                             updateMessage = release?.let { "Version ${it.versionName} is available." } ?: "You're up to date."
-                                        }.onFailure {
-                                            updateMessage = "Update check failed. Check your connection and try again."
+                                        }.onFailure { error ->
+                                            updateMessage = error.message ?: "Update check failed. Check your connection and try again."
                                         }
                                         checkingUpdate = false
                                     }
                                 },
-                                enabled = !checkingUpdate,
+                                enabled = !checkingUpdate && downloadProgress < 0,
                             ) { Text(if (checkingUpdate) "Checking…" else "Check for updates") }
                             availableUpdate?.let { release ->
                                 OutlinedButton(
                                     onClick = {
-                                        updateMessage = "Downloading ${release.versionName} from GitHub…"
+                                        downloadProgress = 0
+                                        updateMessage = "Downloading ${release.versionName}…"
                                         updateScope.launch {
                                             runCatching {
-                                                GitHubUpdateManager.downloadAndInstall(context, release)
+                                                GitHubUpdateManager.downloadAndInstall(context, release) { downloaded, total ->
+                                                    val progress = if (total > 0L) {
+                                                        ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
+                                                    } else {
+                                                        -1
+                                                    }
+                                                    downloadProgress = progress
+                                                }
                                             }.onSuccess {
+                                                downloadProgress = 100
                                                 updateMessage = "Installer opened. Confirm the update to finish."
-                                            }.onFailure {
-                                                updateMessage = "Update download failed. Check your connection and try again."
+                                            }.onFailure { error ->
+                                                downloadProgress = -1
+                                                updateMessage = error.message ?: "Update install failed. Check your connection and try again."
                                             }
                                         }
                                     },
+                                    enabled = downloadProgress < 0,
                                 ) { Text("Download & install") }
+                            }
+                        }
+                        if (downloadProgress >= 0) {
+                            Spacer(Modifier.height(12.dp))
+                            LinearProgressIndicator(
+                                progress = { downloadProgress / 100f },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Download", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("$downloadProgress%", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                             }
                         }
                         if (updateMessage.isNotEmpty()) {
