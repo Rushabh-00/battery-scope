@@ -132,7 +132,6 @@ class BatteryMonitoringService : Service() {
             ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
-        // One predictable 0–100 control; never amplified beyond 100%.
         val scale = settings.notificationIconSizePercent(metric).coerceIn(0, 100) / 100f
         if (scale <= 0f) return Icon.createWithBitmap(bitmap)
 
@@ -154,7 +153,7 @@ class BatteryMonitoringService : Service() {
     }
 
     private fun compactIconValue(metric: AppSettings.NotificationMetric, raw: String): String = when (metric) {
-        AppSettings.NotificationMetric.PERCENT -> raw.toDoubleOrNull()?.let { f1(it.coerceIn(0.0, 100.0)) } ?: "—"
+        AppSettings.NotificationMetric.PERCENT -> raw.toDoubleOrNull()?.let { it.coerceIn(0.0, 100.0).toInt().toString() } ?: "—"
         else -> raw.toDoubleOrNull()?.let { value ->
             when {
                 abs(value) >= 100.0 -> String.format(Locale.US, "%02.0f", value.coerceIn(-99.0, 99.0))
