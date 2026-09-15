@@ -145,7 +145,7 @@ class AppSettings(context: Context) {
         const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
         const val MAX_UPDATE_INTERVAL_MS = 10_000L
         const val MIN_NOTIFICATION_ICON_SIZE_PERCENT = 0
-        const val DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT = 100
+        const val DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT = 96
         const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 100
         val DEFAULT_NOTIFICATION_ICON = NotificationMetric.PERCENT
 
