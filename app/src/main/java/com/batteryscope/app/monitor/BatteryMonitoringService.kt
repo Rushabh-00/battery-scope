@@ -153,7 +153,10 @@ class BatteryMonitoringService : Service() {
     }
 
     private fun compactIconValue(metric: AppSettings.NotificationMetric, raw: String): String = when (metric) {
-        AppSettings.NotificationMetric.PERCENT -> raw.toDoubleOrNull()?.let { it.coerceIn(0.0, 100.0).toInt().toString() } ?: "—"
+        AppSettings.NotificationMetric.PERCENT -> raw.toDoubleOrNull()
+            ?.coerceIn(0.0, 100.0)
+            ?.let { String.format(Locale.US, "%.0f", it) }
+            ?: "—"
         else -> raw.toDoubleOrNull()?.let { value ->
             when {
                 abs(value) >= 100.0 -> String.format(Locale.US, "%02.0f", value.coerceIn(-99.0, 99.0))
