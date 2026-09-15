@@ -128,35 +128,48 @@ class BatteryMonitoringService : Service() {
 
     private fun renderIcon(value: String, unit: String, metric: AppSettings.NotificationMetric): Icon {
         val density = resources.displayMetrics.density
-        // Render at the actual small-icon scale so Android does not shrink a large canvas
-        // containing lots of transparent margins into a tiny status-bar glyph.
         val size = (24f * density).toInt().coerceAtLeast(24)
         val bitmap = iconBitmap?.takeIf { it.width == size && it.height == size && !it.isRecycled }
             ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
-        // UI slider stores 0–100; it controls a 0–300% visual size range.
-        val progress = settings.notificationIconSizePercent(metric).coerceIn(0, 100)
-        if (progress <= 0) return Icon.createWithBitmap(bitmap)
-        val scale = progress * 3f / 100f
-        val canvas = Canvas(bitmap)
-        val maxWidth = size * 0.98f
-        val centerX = size / 2f
+        // One predictable 0–100 control. There is no 300% boost or hidden multiplier.
+        val scale = settings.notificationIconSizePercent(metric).coerceIn(0, 100) / 100f
+        if (scale <= 0f) return Icon.createWithBitmap(bitmap)
 
-        iconPaint.textSize = 14f * density * scale
-        val measuredValue = iconPaint.measureText(value)
-        if (measuredValue > maxWidth && measuredValue > 0f) {
-            iconPaint.textSize *= maxWidth / measuredValue
-        }
-        canvas.drawText(value, centerX, size * 0.61f, iconPaint)
+        val canvas = Canvas(bitmap)
+        val maxWidth = size * 0.96f
+        val centerX = size / 2f
+        val valueText = compactIconValue(metric, value)
+
+        iconPaint.textSize = 17f * density * scale
+        val measuredValue = iconPaint.measureText(valueText)
+        if (measuredValue > maxWidth && measuredValue > 0f) iconPaint.textSize *= maxWidth / measuredValue
+        canvas.drawText(valueText, centerX, size * 0.64f, iconPaint)
 
         iconPaint.textSize = 5.5f * density * scale
         val measuredUnit = iconPaint.measureText(unit)
-        if (measuredUnit > maxWidth && measuredUnit > 0f) {
-            iconPaint.textSize *= maxWidth / measuredUnit
-        }
-        canvas.drawText(unit, centerX, size * 0.88f, iconPaint)
+        if (measuredUnit > maxWidth && measuredUnit > 0f) iconPaint.textSize *= maxWidth / measuredUnit
+        canvas.drawText(unit, centerX, size * 0.90f, iconPaint)
         return Icon.createWithBitmap(bitmap)
+    }
+
+    private fun compactIconValue(metric: AppSettings.NotificationMetric, raw: String): String = when (metric) {
+        AppSettings.NotificationMetric.PERCENT -> {
+            raw.toDoubleOrNull()?.let { f1(it.coerceIn(0.0, 100.0)) } ?: "—"
+        }
+        else -> {
+            val numeric = raw.toDoubleOrNull()
+            when {
+                numeric == null -> raw
+                abs(numeric) >= 100.0 -> {
+                    val rounded = numeric.toLong().coerceIn(-99L, 99L)
+                    String.format(Locale.US, "%02d", rounded)
+                }
+                abs(numeric) >= 10.0 -> String.format(Locale.US, "%02.0f", numeric)
+                else -> f2Compact(numeric)
+            }
+        }
     }
 
     private fun iconParts(snapshot: BatterySnapshot, metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): Pair<String, String> = when (metric) {
@@ -248,6 +261,11 @@ class BatteryMonitoringService : Service() {
     private fun f0(value: Double) = String.format(Locale.US, "%.0f", value)
     private fun f1(value: Double) = String.format(Locale.US, "%.1f", value)
     private fun f2(value: Double) = String.format(Locale.US, "%.2f", value)
+    private fun f2Compact(value: Double): String = when {
+        value == 0.0 -> "00"
+        abs(value) < 1.0 -> String.format(Locale.US, "%.1f", value)
+        else -> String.format(Locale.US, "%.1f", value).take(3)
+    }
 
     private companion object {
         const val CHANNEL_ID = "battery_monitoring"
