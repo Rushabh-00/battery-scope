@@ -120,7 +120,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
-            SettingGroupTitle("Status bar icon", "Choose what the compact icon shows and make it easier to read.")
+            SettingGroupTitle("Status bar icon", "Choose the metric and adjust the text scale. Changes are applied to the live notification.")
             Spacer(Modifier.height(10.dp))
             Text("Icon metric", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
@@ -129,30 +129,38 @@ fun NotificationSettingsSection(settings: AppSettings) {
                 entries = entries - metric
                 settings.notificationIcon = metric
                 settings.notificationEntries = entries
+                BatteryMonitoringController.refresh(context)
             }
             Spacer(Modifier.height(12.dp))
             NotificationIconPreview(icon, iconSize)
             Spacer(Modifier.height(12.dp))
-            Text("Icon size", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Use the slider when the number looks too small or too large on your phone.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Icon size", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Status-bar bounds are controlled by Android; this changes how much of that space the metric text uses.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text("$iconSize%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("70%", style = MaterialTheme.typography.labelSmall)
                 Slider(
                     value = iconSize.toFloat(),
-                    onValueChange = { value -> iconSize = (value / 5f).roundToInt() * 5 },
-                    onValueChangeFinished = { settings.notificationIconSizePercent = iconSize },
+                    onValueChange = { value -> iconSize = (value / 5f).roundToInt().coerceIn(14, 28) * 5 },
+                    onValueChangeFinished = {
+                        settings.notificationIconSizePercent = iconSize
+                        BatteryMonitoringController.refresh(context)
+                    },
                     valueRange = 70f..140f,
                     steps = 13,
                     modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
                 )
                 Text("140%", style = MaterialTheme.typography.labelSmall)
             }
-            Text("$iconSize%", Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
 
             Spacer(Modifier.height(20.dp))
             SettingGroupTitle("Notification details", "Extra values appear when you expand the notification.")
@@ -162,6 +170,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
             NotificationMetricRow(metrics, icon, { it in entries }, setOf(icon)) { metric ->
                 entries = if (metric in entries) entries - metric else entries + metric
                 settings.notificationEntries = entries
+                BatteryMonitoringController.refresh(context)
             }
             Spacer(Modifier.height(12.dp))
             SettingToggle(
@@ -171,6 +180,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
             ) {
                 chargeTime = it
                 settings.notificationChargeTimeEstimate = it
+                BatteryMonitoringController.refresh(context)
             }
 
             Spacer(Modifier.height(20.dp))
@@ -254,14 +264,15 @@ private fun SettingToggle(title: String, body: String, checked: Boolean, onCheck
 @Composable
 private fun NotificationIconPreview(metric: AppSettings.NotificationMetric, sizePercent: Int) {
     val preview = when (metric) {
-        AppSettings.NotificationMetric.POWER -> "12.4 W"
-        AppSettings.NotificationMetric.CURRENT -> "1.8 A"
-        AppSettings.NotificationMetric.CHARGE -> "3.9 Ah"
-        AppSettings.NotificationMetric.TEMPERATURE -> "36 °C"
-        AppSettings.NotificationMetric.VOLTAGE -> "4.2 V"
-        AppSettings.NotificationMetric.ENERGY -> "16.8 Wh"
-        AppSettings.NotificationMetric.PERCENT -> "31%"
+        AppSettings.NotificationMetric.POWER -> "12.4" to "W"
+        AppSettings.NotificationMetric.CURRENT -> "1.8" to "A"
+        AppSettings.NotificationMetric.CHARGE -> "3.9" to "Ah"
+        AppSettings.NotificationMetric.TEMPERATURE -> "36" to "°C"
+        AppSettings.NotificationMetric.VOLTAGE -> "4.2" to "V"
+        AppSettings.NotificationMetric.ENERGY -> "16.8" to "Wh"
+        AppSettings.NotificationMetric.PERCENT -> "31" to "%"
     }
+    val scale = sizePercent / 100f
     Card(
         colors = androidx.compose.material3.CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(18.dp),
@@ -272,24 +283,35 @@ private fun NotificationIconPreview(metric: AppSettings.NotificationMetric, size
         ) {
             Box(
                 Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                val value = preview.substringBefore(' ')
-                Text(
-                    value,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = (MaterialTheme.typography.labelLarge.fontSize.value * sizePercent / 100f).sp,
-                    ),
-                    fontWeight = FontWeight.Bold,
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        preview.first,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = (16f * scale).sp,
+                            lineHeight = (17f * scale).sp,
+                        ),
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        preview.second,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = (9f * scale).sp,
+                            lineHeight = (10f * scale).sp,
+                        ),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Text(preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Live preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text("${preview.first} ${preview.second}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Applied automatically when you release the slider.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -309,11 +331,7 @@ private fun NotificationMetricRow(
                 rowMetrics.forEach { metric ->
                     val active = checked(metric)
                     val locked = metric in disabled
-                    val borderColor = if (locked) {
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-                    } else {
-                        MaterialTheme.colorScheme.outline
-                    }
+                    val borderColor = if (locked) MaterialTheme.colorScheme.outline.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outline
                     val fill = when {
                         active -> MaterialTheme.colorScheme.primaryContainer
                         locked -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
@@ -326,33 +344,20 @@ private fun NotificationMetricRow(
                             .background(fill)
                             .border(1.dp, borderColor, RoundedCornerShape(13.dp))
                             .then(
-                                if (!locked) {
-                                    Modifier.selectable(
-                                        selected = active,
-                                        onClick = { onSelected(metric) },
-                                        role = Role.Checkbox,
-                                    )
-                                } else {
-                                    Modifier
-                                },
+                                if (!locked) Modifier.selectable(selected = active, onClick = { onSelected(metric) }, role = Role.Checkbox)
+                                else Modifier
                             )
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             metric.value,
-                            color = if (locked) {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
+                            color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
                             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                         )
                     }
                 }
-                repeat(4 - rowMetrics.size) {
-                    Spacer(Modifier.weight(1f))
-                }
+                repeat(4 - rowMetrics.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
