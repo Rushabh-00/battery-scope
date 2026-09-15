@@ -1,13 +1,6 @@
 package com.batteryscope.app.ui
 
 import android.os.Build
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,17 +12,14 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.batteryscope.app.settings.UiPreferences
 
-@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun BatteryScopeTheme(
     mode: UiPreferences.Theme,
@@ -56,10 +46,6 @@ fun BatteryScopeTheme(
     } else {
         customColorScheme(argbColorToComposeColor(accentColorArgb), colorStyle, dark, mode == UiPreferences.Theme.OLED)
     }
-
-    val themeKey = remember(mode, colorMode, accentColorArgb, colorStyle) {
-        ThemeKey(mode, colorMode, accentColorArgb, colorStyle)
-    }
     val typography = batteryScopeTypography()
 
     MaterialTheme(
@@ -71,30 +57,12 @@ fun BatteryScopeTheme(
             color = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.onBackground,
         ) {
-            AnimatedContent(
-                targetState = themeKey,
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    (fadeIn(tween(220)) + scaleIn(initialScale = 0.985f, animationSpec = tween(260))) togetherWith
-                        (fadeOut(tween(120)) + scaleOut(targetScale = 1.015f, animationSpec = tween(180)))
-                },
-                contentKey = { it },
-                label = "themeTransition",
-            ) {
-                Box(Modifier.fillMaxSize()) {
-                    content()
-                }
+            Box(Modifier.fillMaxSize()) {
+                content()
             }
         }
     }
 }
-
-private data class ThemeKey(
-    val mode: UiPreferences.Theme,
-    val colorMode: UiPreferences.ColorMode,
-    val accentColorArgb: Long,
-    val colorStyle: UiPreferences.ColorStyle,
-)
 
 private fun batteryScopeTypography(): Typography {
     val base = androidx.compose.material3.Typography()
@@ -211,5 +179,3 @@ private fun mix(first: Color, second: Color, secondWeight: Float): Color = Color
     blue = first.blue * (1f - secondWeight) + second.blue * secondWeight,
     alpha = 1f,
 )
-
-private fun tween(durationMillis: Int) = androidx.compose.animation.core.tween<Float>(durationMillis)
