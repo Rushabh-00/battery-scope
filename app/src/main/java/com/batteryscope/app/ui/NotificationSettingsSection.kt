@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -122,7 +123,7 @@ fun NotificationSettingsSection(settings: AppSettings) {
             HorizontalDivider()
             Spacer(Modifier.height(18.dp))
 
-            GroupCard("Status bar icon", "Choose one metric. Only that metric gets a size control.") {
+            GroupCard("Status bar icon", "Choose one metric and preview its real 24dp notification slot.") {
                 AnimatedContent(
                     targetState = selectedMetric,
                     transitionSpec = {
@@ -247,7 +248,7 @@ private fun IconSizeControl(value: Int, onValueChange: (Int) -> Unit, onValueFin
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
                     Text("Icon size", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Fixed 0–100% scale. No 300% multiplier.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Controls the content inside a fixed 24dp status-bar slot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text("$value%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
@@ -270,27 +271,48 @@ private fun IconSizeControl(value: Int, onValueChange: (Int) -> Unit, onValueFin
 @Composable
 private fun NotificationIconPreview(metric: AppSettings.NotificationMetric, sizePercent: Int) {
     val (value, unit) = notificationPreviewValue(metric)
-    val scale = sizePercent / 100f
+    val scale = (sizePercent / 100f).coerceIn(0f, 1f)
     Card(colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Text("Status-bar preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Status-bar preview", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text("Android keeps the slot size; this slider scales only the metric drawing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("24dp slot", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(10.dp))
             Box(
-                Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(11.dp)).background(Color.Black)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(11.dp)),
-                contentAlignment = Alignment.Center,
+                Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF080808))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
             ) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("9:41", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                Row(Modifier.fillMaxWidth().padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("10:04", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(value, color = Color.White, fontSize = (10f * scale).coerceAtLeast(1f).sp, fontWeight = FontWeight.Bold)
-                        Text(unit, color = Color.White, fontSize = (5f * scale).coerceAtLeast(1f).sp, fontWeight = FontWeight.Bold)
+                    PreviewIcon(value, unit, scale)
+                    Spacer(Modifier.width(5.dp))
+                    Text("5G", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(5.dp))
+                    Text("8", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(5.dp))
+                    Box(Modifier.size(width = 18.dp, height = 9.dp).border(1.dp, Color.White, RoundedCornerShape(2.dp))) {
+                        Box(Modifier.fillMaxWidth(0.8f).height(7.dp).padding(1.dp).background(Color.White, RoundedCornerShape(1.dp)))
                     }
-                    Spacer(Modifier.weight(1f))
-                    Text("5G • 87%", color = Color.White, style = MaterialTheme.typography.labelSmall)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PreviewIcon(value: String, unit: String, scale: Float) {
+    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale),
+        ) {
+            Text(value, color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(unit, color = Color.White, fontSize = 5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
