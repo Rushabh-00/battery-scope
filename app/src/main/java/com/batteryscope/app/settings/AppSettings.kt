@@ -35,16 +35,13 @@ class AppSettings(context: Context) {
                 } else {
                     true
                 }
-                preferences.edit()
-                    .putBoolean(KEY_NOTIFICATION_ENABLED, migratedValue)
-                    .apply()
+                preferences.edit().putBoolean(KEY_NOTIFICATION_ENABLED, migratedValue).apply()
                 return migratedValue
             }
             return preferences.getBoolean(KEY_NOTIFICATION_ENABLED, true)
         }
         set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_ENABLED, value).apply()
 
-    /** Compatibility alias for older persisted callers. */
     var backgroundMonitoringEnabled: Boolean
         get() = notificationEnabled
         set(value) { notificationEnabled = value }
@@ -64,16 +61,23 @@ class AppSettings(context: Context) {
     var notificationIconSizePercent: Int
         get() = preferences.getInt(KEY_NOTIFICATION_ICON_SIZE_PERCENT, DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT)
             .coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT)
-        set(value) = preferences.edit().putInt(
-            KEY_NOTIFICATION_ICON_SIZE_PERCENT,
+        set(value) = preferences.edit().putInt(KEY_NOTIFICATION_ICON_SIZE_PERCENT, value.coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT)).apply()
+
+    fun notificationIconSizePercent(metric: NotificationMetric): Int = preferences.getInt(
+        notificationIconSizeKey(metric),
+        DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT,
+    ).coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT)
+
+    fun setNotificationIconSizePercent(metric: NotificationMetric, value: Int) {
+        preferences.edit().putInt(
+            notificationIconSizeKey(metric),
             value.coerceIn(MIN_NOTIFICATION_ICON_SIZE_PERCENT, MAX_NOTIFICATION_ICON_SIZE_PERCENT),
         ).apply()
+    }
 
     var notificationEntries: Set<NotificationMetric>
         get() = preferences.getStringSet(KEY_NOTIFICATION_ENTRIES, DEFAULT_NOTIFICATION_ENTRIES.map { it.value }.toSet())
-            .orEmpty()
-            .mapNotNull { NotificationMetric.fromValueOrNull(it) }
-            .toSet()
+            .orEmpty().mapNotNull { NotificationMetric.fromValueOrNull(it) }.toSet()
         set(value) = preferences.edit().putStringSet(KEY_NOTIFICATION_ENTRIES, value.map { it.value }.toSet()).apply()
 
     var notificationChargeTimeEstimate: Boolean
@@ -85,33 +89,22 @@ class AppSettings(context: Context) {
         set(value) = preferences.edit().putBoolean(KEY_AUTOMATIC_UPDATE_CHECK, value).apply()
 
     enum class CurrentUnit(val value: String) {
-        AMPERE("A"),
-        MILLIAMPERE("mA");
+        AMPERE("A"), MILLIAMPERE("mA");
         companion object { fun fromValue(value: String?): CurrentUnit = entries.firstOrNull { it.value == value } ?: AMPERE }
     }
 
     enum class TemperatureUnit(val value: String) {
-        CELSIUS("°C"),
-        FAHRENHEIT("°F");
+        CELSIUS("°C"), FAHRENHEIT("°F");
         companion object { fun fromValue(value: String?): TemperatureUnit = entries.firstOrNull { it.value == value } ?: CELSIUS }
     }
 
     enum class ThemeMode(val value: String) {
-        AUTO("Auto"),
-        LIGHT("Light"),
-        DARK("Dark");
+        AUTO("Auto"), LIGHT("Light"), DARK("Dark");
         companion object { fun fromValue(value: String?): ThemeMode = entries.firstOrNull { it.value == value } ?: AUTO }
     }
 
     enum class NotificationMetric(val value: String) {
-        POWER("W"),
-        CURRENT("A"),
-        CHARGE("Ah"),
-        TEMPERATURE("°C"),
-        VOLTAGE("V"),
-        ENERGY("Wh"),
-        PERCENT("%");
-
+        POWER("W"), CURRENT("A"), CHARGE("Ah"), TEMPERATURE("°C"), VOLTAGE("V"), ENERGY("Wh"), PERCENT("%");
         companion object {
             fun fromValue(value: String?): NotificationMetric = entries.firstOrNull { it.value == value } ?: TEMPERATURE
             fun fromValueOrNull(value: String?): NotificationMetric? = entries.firstOrNull { it.value == value }
@@ -137,9 +130,11 @@ class AppSettings(context: Context) {
         const val MIN_UPDATE_INTERVAL_MS = 1_250L
         const val DEFAULT_UPDATE_INTERVAL_MS = 1_250L
         const val MAX_UPDATE_INTERVAL_MS = 10_000L
-        const val MIN_NOTIFICATION_ICON_SIZE_PERCENT = 70
+        const val MIN_NOTIFICATION_ICON_SIZE_PERCENT = 0
         const val DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT = 100
-        const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 140
+        const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 100
+
+        fun notificationIconSizeKey(metric: NotificationMetric) = "notification_icon_size_${metric.name.lowercase()}"
 
         val DEFAULT_NOTIFICATION_ENTRIES = setOf(
             NotificationMetric.POWER,
