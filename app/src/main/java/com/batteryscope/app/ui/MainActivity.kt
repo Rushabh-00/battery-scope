@@ -7,7 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.BackHandler
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -564,7 +564,7 @@ private fun SettingsScreen(
                         }
                     }
                 }
-}
+            }
         }
     }
     if (showColorDialog) {
@@ -574,7 +574,7 @@ private fun SettingsScreen(
             title = { Text("Custom Colour") },
             text = { OutlinedTextField(value = hex, onValueChange = { hex = it }, singleLine = true, label = { Text("Hex colour") }, placeholder = { Text("#18B9C7") }) },
             confirmButton = { TextButton(onClick = { parseHex(hex)?.let(onAccent); showColorDialog = false }) { Text("Apply") } },
-            dismissButton = { TextButton(onClick = { showColorDialog = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showColorDialog = false }) { Text("Cancel") }, },
         )
     }
 }
