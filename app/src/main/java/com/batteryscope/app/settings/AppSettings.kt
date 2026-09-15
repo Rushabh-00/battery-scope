@@ -55,7 +55,7 @@ class AppSettings(context: Context) {
         set(value) = preferences.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, value).apply()
 
     var notificationIcon: NotificationMetric
-        get() = NotificationMetric.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, NotificationMetric.TEMPERATURE.value))
+        get() = NotificationMetric.fromValue(preferences.getString(KEY_NOTIFICATION_ICON, DEFAULT_NOTIFICATION_ICON.value))
         set(value) = preferences.edit().putString(KEY_NOTIFICATION_ICON, value.value).apply()
 
     /** Per-metric status-bar icon size. Kept at a simple 0–100 range. */
@@ -147,6 +147,7 @@ class AppSettings(context: Context) {
         const val MIN_NOTIFICATION_ICON_SIZE_PERCENT = 0
         const val DEFAULT_NOTIFICATION_ICON_SIZE_PERCENT = 100
         const val MAX_NOTIFICATION_ICON_SIZE_PERCENT = 100
+        val DEFAULT_NOTIFICATION_ICON = NotificationMetric.PERCENT
 
         fun notificationIconSizeKey(metric: NotificationMetric) = "notification_icon_size_${metric.name.lowercase()}"
 
