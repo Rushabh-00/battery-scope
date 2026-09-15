@@ -574,7 +574,7 @@ private fun SettingsScreen(
             title = { Text("Custom Colour") },
             text = { OutlinedTextField(value = hex, onValueChange = { hex = it }, singleLine = true, label = { Text("Hex colour") }, placeholder = { Text("#18B9C7") }) },
             confirmButton = { TextButton(onClick = { parseHex(hex)?.let(onAccent); showColorDialog = false }) { Text("Apply") } },
-            dismissButton = { TextButton(onClick = { showColorDialog = false }) { Text("Cancel") }, },
+            dismissButton = { TextButton(onClick = { showColorDialog = false }) { Text("Cancel") } },
         )
     }
 }
