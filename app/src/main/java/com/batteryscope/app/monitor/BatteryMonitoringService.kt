@@ -132,7 +132,11 @@ class BatteryMonitoringService : Service() {
         val bitmap = iconBitmap?.takeIf { it.width == size && !it.isRecycled } ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
-        val scale = settings.notificationIconSizePercent(metric) / 100f
+        // UI slider stores 0–100; it controls a 0–300% visual size range.
+        val progress = settings.notificationIconSizePercent(metric).coerceIn(0, 100)
+        val scale = progress * 3f / 100f
+        if (scale <= 0f) return Icon.createWithBitmap(bitmap)
+
         val canvas = Canvas(bitmap)
         val maxWidth = size * 0.9f
         val centerX = size / 2f
@@ -156,7 +160,7 @@ class BatteryMonitoringService : Service() {
         AppSettings.NotificationMetric.TEMPERATURE -> (snapshot.temperatureC?.let { temperatureValue(it, temperatureUnit) } ?: "—") to temperatureUnit.value
         AppSettings.NotificationMetric.VOLTAGE -> (snapshot.voltageV?.let { f1(it) } ?: "—") to "V"
         AppSettings.NotificationMetric.ENERGY -> (snapshot.energyWh?.let { f1(it) } ?: "—") to "Wh"
-        AppSettings.NotificationMetric.PERCENT -> snapshot.levelPercent.toString() to "%"
+        AppSettings.NotificationMetric.PERCENT -> (snapshot.levelPercent.toString()) to "%"
     }
 
     private fun iconUnit(metric: AppSettings.NotificationMetric, currentUnit: AppSettings.CurrentUnit, temperatureUnit: AppSettings.TemperatureUnit): String = when (metric) {
@@ -197,24 +201,32 @@ class BatteryMonitoringService : Service() {
         AppSettings.CurrentUnit.AMPERE -> f1(value)
         AppSettings.CurrentUnit.MILLIAMPERE -> f0(value * 1000.0)
     }
-    private fun currentText(value: Double, unit: AppSettings.CurrentUnit) = "${currentValue(value, unit)} ${unit.value}"
+
+    private fun currentText(value: Double, unit: AppSettings.CurrentUnit): String = "${currentValue(value, unit)} ${unit.value}"
+
     private fun temperatureValue(valueC: Double, unit: AppSettings.TemperatureUnit): String = when (unit) {
         AppSettings.TemperatureUnit.CELSIUS -> f1(valueC)
         AppSettings.TemperatureUnit.FAHRENHEIT -> f1(valueC * 9.0 / 5.0 + 32.0)
     }
-    private fun temperatureText(valueC: Double, unit: AppSettings.TemperatureUnit) = "${temperatureValue(valueC, unit)} ${unit.value}"
+
+    private fun temperatureText(valueC: Double, unit: AppSettings.TemperatureUnit): String = "${temperatureValue(valueC, unit)} ${unit.value}"
 
     private fun startForegroundCompat(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        else startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun createNotificationChannel() {
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Ongoing status for optional battery notifications"
-            setShowBadge(false)
-        })
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Battery monitoring", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Ongoing status for optional battery notifications"
+                setShowBadge(false)
+            })
+        }
     }
 
     override fun onDestroy() {
