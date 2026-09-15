@@ -303,49 +303,56 @@ private fun NotificationMetricRow(
     disabled: Set<AppSettings.NotificationMetric>,
     onSelected: (AppSettings.NotificationMetric) -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        metrics.forEach { metric ->
-            val active = checked(metric)
-            val locked = metric in disabled
-            val borderColor = if (locked) {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-            } else {
-                MaterialTheme.colorScheme.outline
-            }
-            val fill = when {
-                active -> MaterialTheme.colorScheme.primaryContainer
-                locked -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                else -> Color.Transparent
-            }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(fill)
-                    .border(1.dp, borderColor, RoundedCornerShape(13.dp))
-                    .then(
-                        if (!locked) {
-                            Modifier.selectable(
-                                selected = active,
-                                onClick = { onSelected(metric) },
-                                role = Role.Checkbox,
-                            )
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .padding(vertical = 9.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    metric.value,
-                    color = if (locked) {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        metrics.chunked(4).forEach { rowMetrics ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                rowMetrics.forEach { metric ->
+                    val active = checked(metric)
+                    val locked = metric in disabled
+                    val borderColor = if (locked) {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
                     } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                )
+                        MaterialTheme.colorScheme.outline
+                    }
+                    val fill = when {
+                        active -> MaterialTheme.colorScheme.primaryContainer
+                        locked -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        else -> Color.Transparent
+                    }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(fill)
+                            .border(1.dp, borderColor, RoundedCornerShape(13.dp))
+                            .then(
+                                if (!locked) {
+                                    Modifier.selectable(
+                                        selected = active,
+                                        onClick = { onSelected(metric) },
+                                        role = Role.Checkbox,
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            metric.value,
+                            color = if (locked) {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+                repeat(4 - rowMetrics.size) {
+                    Spacer(Modifier.weight(1f))
+                }
             }
         }
     }
