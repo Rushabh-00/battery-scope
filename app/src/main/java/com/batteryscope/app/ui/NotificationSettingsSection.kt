@@ -142,13 +142,13 @@ fun NotificationSettingsSection(settings: AppSettings) {
                             Box(Modifier.size(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                         }
                         Spacer(Modifier.height(12.dp))
-                        NotificationIconPreview(metric, iconSizes[metric] ?: 100)
+                        NotificationIconPreview(metric, iconSizes[metric] ?: 96)
                         Spacer(Modifier.height(12.dp))
                         IconSizeControl(
-                            value = iconSizes[metric] ?: 100,
+                            value = iconSizes[metric] ?: 96,
                             onValueChange = { iconSizes[metric] = it },
                             onValueFinished = {
-                                settings.setNotificationIconSizePercent(metric, iconSizes[metric] ?: 100)
+                                settings.setNotificationIconSizePercent(metric, iconSizes[metric] ?: 96)
                                 BatteryMonitoringController.refresh(context)
                             },
                         )
@@ -249,7 +249,7 @@ private fun IconSizeControl(value: Int, onValueChange: (Int) -> Unit, onValueFin
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
                     Text("Icon size", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Controls the content inside a fixed 24dp status-bar slot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Starts at 96% and can be adjusted from 0–100% inside the fixed 24dp slot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text("$value%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
