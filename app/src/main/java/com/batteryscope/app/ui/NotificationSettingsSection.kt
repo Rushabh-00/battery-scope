@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -318,7 +319,7 @@ private fun PreviewIcon(value: String, unit: String, scale: Float) {
 }
 
 private fun notificationPreviewValue(metric: AppSettings.NotificationMetric): Pair<String, String> = when (metric) {
-    AppSettings.NotificationMetric.PERCENT -> "85.0" to "%"
+    AppSettings.NotificationMetric.PERCENT -> "85" to "%"
     AppSettings.NotificationMetric.POWER -> "12" to "W"
     AppSettings.NotificationMetric.CURRENT -> "3.2" to "A"
     AppSettings.NotificationMetric.CHARGE -> "04" to "Ah"
