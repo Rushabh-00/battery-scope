@@ -113,7 +113,11 @@ class BatteryMonitoringService : Service() {
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setContentIntent(openIntent)
-            .apply { if (detailLines.size > 1) setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n"))) }
+            .apply {
+                if (detailLines.size > 1) {
+                    setStyle(Notification.BigTextStyle().bigText(detailLines.joinToString("\n")))
+                }
+            }
             .build()
     }
 
@@ -132,7 +136,9 @@ class BatteryMonitoringService : Service() {
             ?: Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { iconBitmap = it }
         bitmap.eraseColor(Color.TRANSPARENT)
 
-        val scale = settings.notificationIconSizePercent(metric).coerceIn(0, 100) / 100f
+        // Android owns the physical status-bar slot. Keep the metric at a predictable
+        // native scale instead of exposing a second size control that cannot resize the slot.
+        val scale = FIXED_ICON_SCALE
         if (scale <= 0f) return Icon.createWithBitmap(bitmap)
 
         val canvas = Canvas(bitmap)
@@ -159,9 +165,7 @@ class BatteryMonitoringService : Service() {
             ?: "—"
         else -> raw.toDoubleOrNull()?.let { value ->
             when {
-                abs(value) >= 100.0 -> String.format(Locale.US, "%02.0f", value.coerceIn(-99.0, 99.0))
-                abs(value) >= 10.0 -> String.format(Locale.US, "%02.0f", value)
-                abs(value) >= 1.0 -> String.format(Locale.US, "%.1f", value)
+                abs(value) >= 10.0 -> String.format(Locale.US, "%02.0f", value.coerceIn(-99.0, 99.0))
                 else -> String.format(Locale.US, "%.1f", value)
             }
         } ?: raw
@@ -260,5 +264,6 @@ class BatteryMonitoringService : Service() {
     private companion object {
         const val CHANNEL_ID = "battery_monitoring"
         const val NOTIFICATION_ID = 2104
+        const val FIXED_ICON_SCALE = 0.96f
     }
 }
